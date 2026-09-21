@@ -275,9 +275,6 @@ def extract_features_exact(step_file):
             axis = cyl.Axis
             radius = round(cyl.Radius, 4)
             diam = round(radius * 2.0, 4)
-            # Filter: Holes larger than standard drill sizes (>12.5mm) are milled bores, not drill holes
-            if diam > 12.5:
-                continue
             if abs(axis.z - 1.0) < 1e-3 or abs(axis.z + 1.0) < 1e-3:
                 # Check normal direction: for a hole/cavity, the normal points INWARD toward axis
                 u_m = (face.ParameterRange[0] + face.ParameterRange[1]) / 2.0
@@ -307,7 +304,8 @@ def extract_features_exact(step_file):
 
                     hole_depth = round(top_z - fb.ZMin, 4)
                     hole_vol = round(math.pi * (radius ** 2) * hole_depth, 2)
-                    
+                    f_z = round(fb.ZMin, 4)
+
                     hole_chamfer = None
                     for ch in all_chamfer_faces:
                         cb = ch["bbox"]
@@ -319,17 +317,58 @@ def extract_features_exact(step_file):
                                 "width_mm": ch["width_mm"]
                             }
                             break
-                            
-                    vertical_holes.append({
-                        "id": f"vertical_hole_{len(vertical_holes)+1}",
-                        "diameter_mm": diam,
-                        "radius_mm": radius,
-                        "depth_from_external_top_mm": hole_depth,
-                        "center_xy_mm": [c_x, c_y],
-                        "is_through_hole": bool(fb.ZLength >= (stock_dims["z_length_mm"] - 0.2)),
-                        "top_countersink": hole_chamfer if hole_chamfer else {"has_countersink": False},
-                        "volume_mm3": hole_vol
-                    })
+
+                    # Holes larger than standard drill sizes (>12.5mm) are milled as circular pockets
+                    if diam > 12.5:
+                        circ_poly = [
+                            [round(c_x + radius * math.cos(a), 3), round(c_y + radius * math.sin(a), 3)]
+                            for a in [2 * math.pi * i / 32 for i in range(33)]
+                        ]
+                        pockets.append({
+                            "id": f"pocket_{len(pockets)+1}",
+                            "type": "circular_pocket",
+                            "is_circular": True,
+                            "circular_radius_mm": radius,
+                            "circular_diameter_mm": diam,
+                            "is_slot": False,
+                            "slot_info": None,
+                            "is_open_step": False,
+                            "open_boundary_edges": {"min_x": False, "max_x": False, "min_y": False, "max_y": False},
+                            "depth_from_external_top_mm": hole_depth,
+                            "floor_z_mm": f_z,
+                            "boundary_polygon_xy": circ_poly,
+                            "island_polygons_xy": [],
+                            "nominal_area_mm2": round(math.pi * (radius ** 2), 2),
+                            "bounds": {
+                                "min_x": round(c_x - radius, 4),
+                                "max_x": round(c_x + radius, 4),
+                                "min_y": round(c_y - radius, 4),
+                                "max_y": round(c_y + radius, 4),
+                                "width_x_mm": diam,
+                                "length_y_mm": diam
+                            },
+                            "top_opening_dimensions": {
+                                "width_x_mm": diam,
+                                "length_y_mm": diam
+                            },
+                            "top_rim_chamfer": hole_chamfer if hole_chamfer else {"has_chamfer": False},
+                            "center_mm": [c_x, c_y],
+                            "min_corner_radius_mm": radius,
+                            "max_tool_diameter_mm": round(min(10.0, diam - 0.2), 2),
+                            "min_cavity_width_mm": diam,
+                            "volume_mm3": hole_vol
+                        })
+                    else:
+                        vertical_holes.append({
+                            "id": f"vertical_hole_{len(vertical_holes)+1}",
+                            "diameter_mm": diam,
+                            "radius_mm": radius,
+                            "depth_from_external_top_mm": hole_depth,
+                            "center_xy_mm": [c_x, c_y],
+                            "is_through_hole": bool(fb.ZLength >= (stock_dims["z_length_mm"] - 0.2)),
+                            "top_countersink": hole_chamfer if hole_chamfer else {"has_countersink": False},
+                            "volume_mm3": hole_vol
+                        })
 
     # -------------------------------------------------------------
     # 6. Slanted / Angled Planar Surfaces + Adjacent Side Cheek Walls
