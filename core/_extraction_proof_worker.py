@@ -160,8 +160,13 @@ def run_extraction_proof(step_path, features_path, output_path, tolerance_pct=2.
     # 6. Boolean Residual Analysis:
     # - Unmatched = Material in nominal CAD removal that feature extraction missed
     # - Extra = Material in feature solids that cuts into the nominal CAD part (gouging)
-    unmatched_shape = s_nominal.cut(total_union)
-    extra_shape = total_union.cut(s_nominal)
+    # Use fuzzy tolerance (0.05mm) to handle co-planar coincident face boundaries
+    try:
+        unmatched_shape = s_nominal.cut(total_union, 0.05)
+        extra_shape = total_union.cut(s_nominal, 0.05)
+    except Exception:
+        unmatched_shape = s_nominal.cut(total_union)
+        extra_shape = total_union.cut(s_nominal)
 
     unmatched_volume = round(unmatched_shape.Volume, 3)
     extra_volume = round(extra_shape.Volume, 3)
