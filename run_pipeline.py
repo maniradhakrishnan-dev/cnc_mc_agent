@@ -52,6 +52,23 @@ def run_step(step_num, step_name, script_name, args_list):
     print(f"⏱️ Step {step_num} completed in {elapsed:.2f}s\n")
     return res
 
+def run_freecad_worker(step_num, step_name, script_name, args_list):
+    script_path = os.path.join(CORE_DIR, script_name)
+    if not os.path.exists(script_path):
+        script_path = os.path.join(AGENT_DIR, script_name)
+    cmd = ["freecadcmd", script_path, "--"] + args_list
+    t0 = time.time()
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    elapsed = time.time() - t0
+    if res.returncode != 0:
+        print(f"\n[❌] PIPELINE ERROR at Step {step_num}: {step_name}")
+        print(res.stdout)
+        print(res.stderr)
+        sys.exit(1)
+    print(res.stdout.strip())
+    print(f"⏱️ Step {step_num} completed in {elapsed:.2f}s\n")
+    return res
+
 def check_refusal_condition(features, tools):
     """
     Implements REQ.md Line 41 Refusal Case:
@@ -283,6 +300,13 @@ def main():
         "--output", features_json
     ])
 
+    # Step 1b: Gate A - B-Rep Feature Extraction Proof (Mathematical Reconstruction)
+    if cad_file.lower().endswith((".step", ".stp")):
+        gate_a_json = os.path.join(run_dir, "extraction_proof.json")
+        run_freecad_worker("1b", "Gate A: B-Rep Feature Extraction Proof", "_extraction_proof_worker.py", [
+            cad_file, features_json, gate_a_json
+        ])
+
     # Refusal Check (REQ.md Line 41):
     # 'A part with an internal corner radius smaller than the smallest tool in the library.
     #  No program can cut it. The agent must name the feature and the required tool diameter
@@ -359,14 +383,25 @@ def main():
             "--gcode-dir", iter_dir
         ])
 
+        # Step 4b: Gate B - Machined Geometry Proof (Metrological Surface & Cross-Strategy Consistency)
+        gate_b_json = os.path.join(iter_dir, "geometry_proof.json")
+        if cad_file.lower().endswith((".step", ".stp")):
+            run_freecad_worker(f"4b.{iteration}", f"Gate B: Machined Geometry Proof [Iter {iteration}]", "_geometry_proof_worker.py", [
+                cad_file, iter_dir, gate_b_json, features_json
+            ])
+
         # Step 5: Surface Deviation & Metrological Verifier
-        run_step(f"5.{iteration}", f"Surface Deviation & Metrological Verifier [Iter {iteration}]", "surface_comparator.py", [
+        surf_args = [
             "--cad", cad_file,
             "--features", features_json,
             "--sim", iter_sim,
             "--strategies", iter_strategies,
+            "--tools", archived_tools,
             "--out", iter_dev
-        ])
+        ]
+        if os.path.exists(gate_b_json):
+            surf_args += ["--proof", gate_b_json]
+        run_step(f"5.{iteration}", f"Surface Deviation & Metrological Verifier [Iter {iteration}]", "surface_comparator.py", surf_args)
 
         # Step 5b: Diagnostic Critique Evaluator
         run_step(f"5b.{iteration}", f"Diagnostic Critique & Convergence Evaluator [Iter {iteration}]", "critique_evaluator.py", [
