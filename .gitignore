@@ -1,0 +1,24 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+
+# Agent execution runs & heavy cut meshes
+runs/
+*.stl
+*.camotics
+!sample_part.step
+!step/*.step
+!sample_part.dxf
+
+# Environment & local keys
+.env
+
+# Editor & OS artifacts
+.DS_Store
+.vscode/
+.idea/
+*.swp

@@ -1,0 +1,182 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "NormalizedFeaturesSpec",
+  "description": "Deterministic geometric feature extraction schema for CNC machining (Single & Multi-Setup)",
+  "type": "object",
+  "required": ["source_cad_file", "stock_requirements", "features", "machinability_constraints"],
+  "properties": {
+    "source_cad_file": { "type": "string" },
+    "file_format": { "type": "string" },
+    "stock_requirements": {
+      "type": "object",
+      "required": ["x_length_mm", "y_length_mm", "z_length_mm", "bounds"],
+      "properties": {
+        "x_length_mm": { "type": "number" },
+        "y_length_mm": { "type": "number" },
+        "z_length_mm": { "type": "number" },
+        "bounds": {
+          "type": "object",
+          "properties": {
+            "min": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+            "max": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 }
+          }
+        }
+      }
+    },
+    "verification_audit": {
+      "type": "object",
+      "properties": {
+        "overall_status": { "type": "string" },
+        "machining_classification": { "type": "string" },
+        "audit_1_surface_accounting": { "type": "object" },
+        "audit_2_volume_conservation": { "type": "object" },
+        "audit_3_multi_setup_partitioning": { "type": "object" }
+      }
+    },
+    "features": {
+      "type": "object",
+      "properties": {
+        "setup_1_top_3axis": {
+          "type": "object",
+          "properties": {
+            "pockets": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id", "depth_from_external_top_mm", "floor_z_mm", "bounds", "boundary_polygon_xy"],
+                "properties": {
+                  "id": { "type": "string" },
+                  "type": { "type": "string" },
+                  "is_circular": { "type": "boolean" },
+                  "circular_radius_mm": { "type": ["number", "null"] },
+                  "circular_diameter_mm": { "type": ["number", "null"] },
+                  "is_slot": { "type": "boolean" },
+                  "slot_info": { "type": ["object", "null"] },
+                  "is_open_step": { "type": "boolean" },
+                  "open_boundary_edges": { "type": "object" },
+                  "depth_from_external_top_mm": { "type": "number" },
+                  "floor_z_mm": { "type": "number" },
+                  "volume_mm3": { "type": "number" },
+                  "nominal_area_mm2": { "type": "number" },
+                  "boundary_polygon_xy": {
+                    "type": "array",
+                    "items": {
+                      "type": "array",
+                      "items": { "type": "number" },
+                      "minItems": 2,
+                      "maxItems": 2
+                    }
+                  },
+                  "island_polygons_xy": {
+                    "type": "array",
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "array",
+                        "items": { "type": "number" },
+                        "minItems": 2,
+                        "maxItems": 2
+                      }
+                    }
+                  },
+                  "bounds": {
+                    "type": "object",
+                    "properties": {
+                      "min_x": { "type": "number" },
+                      "max_x": { "type": "number" },
+                      "min_y": { "type": "number" },
+                      "max_y": { "type": "number" },
+                      "width_x_mm": { "type": "number" },
+                      "length_y_mm": { "type": "number" }
+                    }
+                  }
+                }
+              }
+            },
+            "vertical_holes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id", "diameter_mm", "radius_mm", "center_xy_mm", "depth_mm"],
+                "properties": {
+                  "id": { "type": "string" },
+                  "diameter_mm": { "type": "number" },
+                  "radius_mm": { "type": "number" },
+                  "center_xy_mm": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+                  "depth_mm": { "type": "number" },
+                  "is_through_hole": { "type": "boolean" },
+                  "volume_mm3": { "type": "number" }
+                }
+              }
+            },
+            "slanted_surfaces": {
+              "type": "array",
+              "items": { "type": "object" }
+            }
+          }
+        },
+        "setup_2_horizontal_side_features": {
+          "type": "object",
+          "properties": {
+            "side_cross_holes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": { "type": "string" },
+                  "diameter_mm": { "type": "number" },
+                  "depth_mm": { "type": "number" },
+                  "axis_orientation": { "type": "string" },
+                  "center_z_height_mm": { "type": "number" },
+                  "requires_setup": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "setup_3_multi_axis_5axis_features": {
+          "type": "object",
+          "properties": {
+            "compound_angled_holes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": { "type": "string" },
+                  "diameter_mm": { "type": "number" },
+                  "radius_mm": { "type": "number" },
+                  "tool_axis_vector": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+                  "tilt_angle_from_vertical_deg": { "type": "number" },
+                  "z_height_range_mm": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+                  "requires_setup": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "special_tooling_features": {
+          "type": "object",
+          "properties": {
+            "undercut_cavities": {
+              "type": "array",
+              "items": { "type": "object" }
+            }
+          }
+        }
+      }
+    },
+    "machinability_constraints": {
+      "type": "object",
+      "properties": {
+        "min_internal_corner_radius_mm": { "type": ["number", "null"] },
+        "vertical_corner_radius_mm": { "type": ["number", "null"] },
+        "max_tool_diam_for_corners_mm": { "type": ["number", "null"] },
+        "deepest_feature_depth_mm": { "type": "number" },
+        "requires_multiple_setups": { "type": "boolean" },
+        "requires_5axis_indexing": { "type": "boolean" },
+        "requires_undercut_tooling": { "type": "boolean" },
+        "total_chamfers_detected": { "type": "integer" }
+      }
+    }
+  }
+}
