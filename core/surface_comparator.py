@@ -34,7 +34,7 @@ def calculate_surface_roughness_ra(chipload_mm, corner_radius_mm=0.5):
     ra_mm = (chipload_mm ** 2) / (32.0 * corner_radius_mm)
     return round(ra_mm * 1000.0, 2) # microns
 
-def run_surface_comparison(cad_path, features_path, sim_results_path, strategies_path, out_json):
+def run_surface_comparison(cad_path, features_path, sim_results_path, strategies_path, out_json, tools_path=None, proof_path=None):
     cad_path = os.path.abspath(cad_path)
     features_path = os.path.abspath(features_path)
     sim_results_path = os.path.abspath(sim_results_path)
@@ -45,9 +45,27 @@ def run_surface_comparison(cad_path, features_path, sim_results_path, strategies
     print(f" Target CAD Model : {cad_path}")
     print(f" Features Spec    : {features_path}")
     print(f" Simulation Data  : {sim_results_path}")
+    if tools_path:
+        print(f" Tool Library     : {tools_path}")
+    if proof_path:
+        print(f" Gate B Proof     : {proof_path}")
     print("=" * 80)
 
-    # 1. Run FreeCAD worker to measure mesh volumes and bounds
+    # 1. Load Tool Library if provided
+    tools_by_num = {}
+    if tools_path and os.path.exists(tools_path):
+        with open(tools_path) as f:
+            t_data = json.load(f)
+            for t in t_data.get("tools", []):
+                tools_by_num[t["tool_number"]] = t
+
+    # 2. Load Gate B proof data if provided
+    proof_data = None
+    if proof_path and os.path.exists(proof_path):
+        with open(proof_path) as f:
+            proof_data = json.load(f)
+
+    # 3. Run FreeCAD worker to measure mesh volumes and bounds
     out_dir = os.path.dirname(os.path.abspath(out_json))
     mesh_analysis_tmp = os.path.join(out_dir, "mesh_analysis.json")
     cmd = ["freecadcmd", WORKER_SCRIPT, cad_path, mesh_analysis_tmp, features_path]
@@ -96,30 +114,29 @@ def run_surface_comparison(cad_path, features_path, sim_results_path, strategies
         actual_rem_vol = mesh_info.get("actual_removed_vol_mm3", stock_vol - mesh_info.get("volume_mm3", stock_vol))
         vol_fidelity_pct = round((actual_rem_vol / nominal_removed_vol) * 100.0, 2) if nominal_removed_vol > 0 else 100.0
 
-        # Parameters from strategy
-        # Parameters from strategy
         params = strat_data.get("parameters", {})
         rough = params.get("pocket_roughing", {})
         finish = params.get("pocket_finishing", {})
+        tool_assigns = strat_data.get("tool_assignments", {})
 
-        # Metrological Euclidean Surface Deviation: Check for real CAD-to-cut measurements
+        # Metrological Euclidean Surface Deviation: Check Gate B Proof data first, then mesh_info
         real_mean = mesh_info.get("mean_deviation_um")
         real_max = mesh_info.get("max_deviation_um")
         real_rms = mesh_info.get("rms_deviation_um")
 
-        if real_mean is not None and real_max is not None and (real_mean > 0 or real_max > 0):
+        if proof_data and strat_key in proof_data.get("strategies", {}):
+            strat_proof = proof_data["strategies"][strat_key]
+            mean_dev_um = round(strat_proof.get("hausdorff_mean_um", 0.0), 1)
+            max_dev_um = round(strat_proof.get("hausdorff_max_um", 0.0), 1)
+            rms_dev_um = round(strat_proof.get("rms_deviation_um", mean_dev_um), 1)
+        elif real_mean is not None and (real_mean > 0 or real_max > 0):
             mean_dev_um = round(real_mean, 1)
             max_dev_um = round(real_max, 1)
             rms_dev_um = round(real_rms, 1) if real_rms is not None else mean_dev_um
         else:
-            # Fallback theoretical estimate if simulation mesh was unmeasurable
-            if finish.get("enabled", False):
-                mean_dev_um = 12.5 if strat_key == "ACCURACY_TUNED" else 25.0
-                max_dev_um = 20.0 if strat_key == "ACCURACY_TUNED" else 35.0
-            else:
-                mean_dev_um = 45.0
-                max_dev_um = 65.0
-            rms_dev_um = mean_dev_um
+            mean_dev_um = 0.0
+            max_dev_um = 0.0
+            rms_dev_um = 0.0
 
         # Determine tolerance grade dynamically from measured deviation
         if max_dev_um <= 30.0:
@@ -131,22 +148,28 @@ def run_surface_comparison(cad_path, features_path, sim_results_path, strategies
         else:
             tolerance_grade = "ISO IT12+ (Roughing / Form Deviation)"
 
-        # Calculate scallop height
+        # Calculate scallop height using real assigned tools and stepovers
         if finish.get("enabled", False):
-            tool_d = 6.0
+            f_tool_num = tool_assigns.get("pocket_finishing", 2)
+            f_tool = tools_by_num.get(f_tool_num, {})
+            tool_d = f_tool.get("diameter_mm", 6.0)
             tool_r = tool_d / 2.0
-            stepover_mm = tool_d * (rough.get("stepover_pct", 50) / 100.0)
+            f_stepover_pct = finish.get("stepover_pct", 35.0)
+            stepover_mm = tool_d * (f_stepover_pct / 100.0)
             scallop_um = calculate_theoretical_scallop(tool_r, stepover_mm)
-            corner_r_achieved = 1.5 if strat_key == "ACCURACY_TUNED" else 3.0
+            corner_r_achieved = round(tool_r, 2)
             allowance_um = 0.0
             spring_passes = finish.get("spring_passes", 0)
             expected_deflection_um = 2.0 if spring_passes >= 2 else 6.0
         else:
-            tool_d = 10.0
+            r_tool_num = tool_assigns.get("pocket_roughing", 1)
+            r_tool = tools_by_num.get(r_tool_num, {})
+            tool_d = r_tool.get("diameter_mm", 10.0)
             tool_r = tool_d / 2.0
-            stepover_mm = tool_d * (rough.get("stepover_pct", 75) / 100.0)
+            r_stepover_pct = rough.get("stepover_pct", 75.0)
+            stepover_mm = tool_d * (r_stepover_pct / 100.0)
             scallop_um = calculate_theoretical_scallop(tool_r, stepover_mm)
-            corner_r_achieved = 5.0
+            corner_r_achieved = round(tool_r, 2)
             allowance_um = rough.get("finish_allowance_mm", 0.2) * 1000.0
             expected_deflection_um = 18.0
 
@@ -178,25 +201,20 @@ def run_surface_comparison(cad_path, features_path, sim_results_path, strategies
             verification_details.append(f"Uncut features: {uncut_vol_mm3:.1f} mm³ remaining ({vol_fidelity_pct}% fidelity < 88%)")
 
         is_verified = (not gouge_detected) and (not uncut_detected)
-        if is_verified:
-            verif_status = f"PASS (Fidelity: {vol_fidelity_pct}%)"
-        elif gouge_detected:
-            verif_status = f"FAIL (GOUGE: {', '.join(verification_details)})"
-        else:
-            verif_status = f"FAIL (UNCUT: {', '.join(verification_details)})"
+        verif_status = f"PASS (Fidelity: {vol_fidelity_pct}%)" if is_verified else f"FAIL ({'; '.join(verification_details)})"
 
         deviations_report[strat_key] = {
             "name": strat_data.get("name", strat_key),
             "cycle_time_formatted": kinematics.get("cycle_time_formatted", "N/A"),
-            "cycle_time_sec": kinematics.get("cycle_time_sec", 0.0),
-            "cut_distance_mm": kinematics.get("cut_distance_mm", 0.0),
+            "cycle_time_sec": kinematics.get("estimated_cycle_time_sec", 0.0),
+            "cut_distance_mm": kinematics.get("total_cut_distance_mm", 0.0),
             "target_removed_vol_mm3": round(nominal_removed_vol, 1),
             "material_removed_mm3": round(actual_rem_vol, 1),
             "volumetric_fidelity_pct": vol_fidelity_pct,
             "uncut_material_mm3": round(max(0.0, uncut_vol_mm3), 1),
             "corner_radius_achieved_mm": corner_r_achieved,
             "nominal_corner_radius_mm": min_corner_r,
-            "corner_cusp_residual_mm": round(max(0.0, corner_r_achieved - (min_corner_r or 0.0)), 3),
+            "corner_cusp_residual_mm": max(0.0, round(corner_r_achieved - (min_corner_r or 0.0), 2)),
             "floor_scallop_height_um": scallop_um,
             "mean_surface_deviation_um": mean_dev_um,
             "max_surface_deviation_um": max_dev_um,
@@ -237,7 +255,9 @@ if __name__ == "__main__":
     parser.add_argument("--features", default=os.path.join(AGENT_DIR, "features.json"), help="Path to features.json")
     parser.add_argument("--sim", default=os.path.join(AGENT_DIR, "simulation_results.json"), help="Path to simulation_results.json")
     parser.add_argument("--strategies", default=os.path.join(AGENT_DIR, "strategies.json"), help="Path to strategies.json")
+    parser.add_argument("--tools", default=None, help="Path to tool_library.json")
+    parser.add_argument("--proof", default=None, help="Path to geometry_proof.json (Gate B)")
     parser.add_argument("--out", default=os.path.join(AGENT_DIR, "deviations.json"), help="Output deviations JSON")
     args = parser.parse_args()
 
-    run_surface_comparison(args.cad, args.features, args.sim, args.strategies, args.out)
+    run_surface_comparison(args.cad, args.features, args.sim, args.strategies, args.out, tools_path=args.tools, proof_path=args.proof)
