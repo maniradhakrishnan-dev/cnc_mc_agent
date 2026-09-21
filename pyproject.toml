@@ -1,7 +1,7 @@
 [project]
-name = "cnc-agent"
+name = "cnc-mc-agent"
 version = "0.1.0"
-description = "Autonomous Multi-Agent CNC CAM Pipeline with Closed-Loop Physical & Metrological Verification"
+description = "Autonomous Closed-Loop CNC Machine Code (G-Code) Generation & Verification Agent"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -13,6 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
+cnc-mc-agent = "run_pipeline:main"
 cnc-agent = "run_pipeline:main"
 
 [build-system]

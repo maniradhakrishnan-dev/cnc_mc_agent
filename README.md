@@ -1,6 +1,6 @@
-# CNC-Agent: Autonomous Closed-Loop CNC Machining & Physical Verification Agent
+# CNC-MC-Agent: Autonomous Closed-Loop CNC Machine Code (G-Code) Generation & Verification Agent
 
-An autonomous closed-loop CNC CAM agent that accepts arbitrary 3D CAD models (STEP) or 2D mechanical drawings (DXF), extracts topological features, plans multi-objective machining strategies on the Pareto Frontier, generates machine-ready G-code, simulates cut workpieces via CAMotics, physically verifies tolerances against the nominal CAD B-Rep using OpenCASCADE, and **iteratively self-corrects using diagnostic feedback until tolerances and safety converge**.
+An autonomous closed-loop CNC Machine Code (G-code) agent that accepts arbitrary 3D CAD models (STEP) or 2D mechanical drawings (DXF), extracts topological features, plans multi-objective machining strategies on the Pareto Frontier, generates machine-ready G-code, simulates cut workpieces via CAMotics, physically verifies tolerances against the nominal CAD B-Rep using OpenCASCADE, and **iteratively self-corrects using diagnostic feedback until tolerances and safety converge**.
 
 ---
 
@@ -79,7 +79,7 @@ An autonomous closed-loop CNC CAM agent that accepts arbitrary 3D CAD models (ST
 ## Directory Structure
 
 ```
-cnc-agent/
+cnc-mc-agent/
 ├── pyproject.toml              # Package configuration & console entrypoint
 ├── README.md                   # Documentation
 ├── run_pipeline.py             # Master closed-loop orchestrator CLI
@@ -161,8 +161,8 @@ Setup is completely automated with `uv`:
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/maniradhakrishnan-dev/cnc-agent.git
-cd cnc-agent
+git clone https://github.com/maniradhakrishnan-dev/cnc-mc-agent.git
+cd cnc-mc-agent
 
 # 2. (Optional) Create environment file for LLM planner
 cp .env.example .env
@@ -178,7 +178,7 @@ uv sync
 Run the built-in system doctor to verify your Python environment, CAD/CAM binaries, and computational geometry libraries in 1 second:
 
 ```bash
-uv run cnc-agent --doctor
+uv run cnc-mc-agent --doctor
 ```
 
 Expected output:
@@ -222,17 +222,17 @@ Tests included:
 
 ### 1. Execute on 3D CAD Drawing (STEP)
 ```bash
-uv run cnc-agent step/01_simple_holes_plate.step
+uv run cnc-mc-agent step/01_simple_holes_plate.step
 ```
 
 ### 2. Execute on 2D Mechanical Drawing (DXF)
 ```bash
-uv run cnc-agent sample_part.dxf
+uv run cnc-mc-agent sample_part.dxf
 ```
 
 ### 3. Customize Iteration Limits and Tolerances
 ```bash
-uv run cnc-agent step/machining_block_03.step \
+uv run cnc-mc-agent step/machining_block_03.step \
     --run-id block03_prod \
     --max-iterations 3 \
     --target-accuracy-scallop-um 35.0 \

@@ -209,7 +209,7 @@ def run_doctor():
     print("=" * 75)
     if all_passed:
         print(" \033[1;32m[STATUS: SYSTEM READY]\033[0m All critical dependencies are verified.")
-        print(" You can execute CNC Agent runs via: uv run cnc-agent <drawing.step/dxf>")
+        print(" You can execute CNC Agent runs via: uv run cnc-mc-agent <drawing.step/dxf>")
         print("=" * 75)
         sys.exit(0)
     else:
