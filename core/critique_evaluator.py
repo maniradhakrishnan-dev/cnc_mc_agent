@@ -57,10 +57,24 @@ def evaluate_run(sim_path, deviations_path, tools_path, features_path=None, stra
     if features_path and os.path.exists(features_path):
         with open(features_path, "r") as f:
             features = json.load(f)
-            for p in features.get("pockets", []):
-                r = p.get("internal_corner_radius_mm")
+            feat_container = features.get("features", {})
+            if "setup_1_top_3axis" in feat_container:
+                pockets = feat_container["setup_1_top_3axis"].get("pockets", [])
+            elif "primary_setup_top_3axis" in feat_container:
+                pockets = feat_container["primary_setup_top_3axis"].get("pockets", [])
+            elif "pockets" in feat_container:
+                pockets = feat_container.get("pockets", [])
+            else:
+                pockets = features.get("pockets", [])
+
+            for p in pockets:
+                r = p.get("min_corner_radius_mm") or p.get("internal_corner_radius_mm")
                 if r and (min_internal_radius is None or r < min_internal_radius):
                     min_internal_radius = r
+
+            if min_internal_radius is None:
+                mc = features.get("machinability_constraints", {})
+                min_internal_radius = mc.get("vertical_corner_radius_mm") or mc.get("min_internal_corner_radius_mm")
 
     strategies_plan = {}
     if strategies_path and os.path.exists(strategies_path):
