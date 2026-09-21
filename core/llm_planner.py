@@ -103,6 +103,7 @@ def build_deterministic_fallback(features, tools, feedback=None):
             endmill_finish = next((t for t in tools["tools"] if t["tool_number"] == 3), tools["tools"][1])
         else:
             endmill_finish = next((t for t in tools["tools"] if t["tool_number"] == 2), tools["tools"][1])
+    # Primary default drill assignment; toolpath_generator automatically handles per-hole diameter matching
     drill_tool = next((t for t in tools["tools"] if t["type"] == "drill"), tools["tools"][0])
 
     cycle_time_needs_secondary = (min_cavity <= endmill_rough["diameter_mm"])

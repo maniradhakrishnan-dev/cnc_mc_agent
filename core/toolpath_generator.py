@@ -376,8 +376,8 @@ def generate_legacy_polygon_finishing(p, finish_tool, depth, f_stepdown, f_feed,
 
 def verify_preflight_feature_coverage(gcode_text, features, strategy_name):
     """
-    Deterministically asserts that EVERY extracted feature in features.json has at least one
-    cutting feed motion (G01/G02/G03) within its 3D spatial bounding volume.
+    Deterministically asserts that EVERY extracted feature in features.json (pockets and holes)
+    has at least one cutting feed motion (G01/G02/G03) within its 3D spatial bounding volume.
     Raises RuntimeError if any feature was omitted.
     """
     s1 = features.get("features", {}).get("setup_1_top_3axis", {})
@@ -385,36 +385,47 @@ def verify_preflight_feature_coverage(gcode_text, features, strategy_name):
     if not pockets:
         pockets = features.get("features", {}).get("pockets", [])
 
+    holes = s1.get("vertical_holes", [])
+    if not holes:
+        holes = features.get("features", {}).get("vertical_holes", [])
+        if not holes:
+            holes = features.get("features", {}).get("holes", [])
+
     cut_points = []
+    curr_x = None
+    curr_y = None
+    curr_z = None
+
     for line in gcode_text.splitlines():
         line = line.strip()
         if not line or line.startswith(";") or line.startswith("("):
             continue
-        if line.startswith("G01") or line.startswith("G1 ") or line.startswith("G02") or line.startswith("G03"):
-            parts = line.split()
-            x = y = z = None
-            for pt_part in parts:
-                if pt_part.startswith("X"):
-                    try:
-                        x = float(pt_part[1:])
-                    except ValueError:
-                        pass
-                elif pt_part.startswith("Y"):
-                    try:
-                        y = float(pt_part[1:])
-                    except ValueError:
-                        pass
-                elif pt_part.startswith("Z"):
-                    try:
-                        z = float(pt_part[1:])
-                    except ValueError:
-                        pass
-            if x is not None and y is not None:
-                cut_points.append((x, y, z))
+        parts = line.split()
+        is_cutting = any(line.startswith(code) for code in ["G01", "G1 ", "G02", "G2 ", "G03", "G3 "])
+        for pt_part in parts:
+            if pt_part.startswith("X"):
+                try:
+                    curr_x = float(pt_part[1:])
+                except ValueError:
+                    pass
+            elif pt_part.startswith("Y"):
+                try:
+                    curr_y = float(pt_part[1:])
+                except ValueError:
+                    pass
+            elif pt_part.startswith("Z"):
+                try:
+                    curr_z = float(pt_part[1:])
+                except ValueError:
+                    pass
+
+        if is_cutting and curr_x is not None and curr_y is not None:
+            cut_points.append((curr_x, curr_y, curr_z))
 
     uncovered_features = []
+    # 1. Check pockets
     for p in pockets:
-        p_id = p["id"]
+        p_id = f"{p['id']} ({p.get('type', 'pocket')})"
         b = p.get("bounds", {})
         min_x = b.get("min_x", -999.0) - 2.0
         max_x = b.get("max_x", 999.0) + 2.0
@@ -424,6 +435,15 @@ def verify_preflight_feature_coverage(gcode_text, features, strategy_name):
         has_cut = any(min_x <= pt[0] <= max_x and min_y <= pt[1] <= max_y for pt in cut_points)
         if not has_cut:
             uncovered_features.append(p_id)
+
+    # 2. Check vertical holes
+    for h in holes:
+        h_id = f"{h.get('id', 'hole')} (drill {h.get('diameter_mm', 6.0):.1f}mm)"
+        cx, cy = h.get("center_xy_mm", [0.0, 0.0])
+        r = h.get("radius_mm", h.get("diameter_mm", 6.0) / 2.0)
+        has_cut = any(abs(pt[0] - cx) <= (r + 2.0) and abs(pt[1] - cy) <= (r + 2.0) for pt in cut_points)
+        if not has_cut:
+            uncovered_features.append(h_id)
 
     if uncovered_features:
         raise RuntimeError(
@@ -585,6 +605,7 @@ def generate_gcode_for_strategy(strategy_name, strat, features, tool_lib, output
 
     # =========================================================================
     # OPERATION 3: Drilling Cycles (from features.json)
+    # Automatically matches each hole to the correct drill tool diameter
     # =========================================================================
     if vertical_holes:
         d_param = params.get("drilling", {})
@@ -592,28 +613,127 @@ def generate_gcode_for_strategy(strategy_name, strat, features, tool_lib, output
         d_feed = d_param.get("feedrate_mm_min", 400)
         peck_q = d_param.get("peck_depth_mm", 4.0)
 
-        lines.append(f"\n; -------------------------------------------------------------")
-        lines.append(f"; OP 3: Vertical Hole Peck Drilling (Tool T{drill_tool['tool_number']}: {drill_tool['name']})")
-        lines.append(f"; -------------------------------------------------------------")
-        lines.append(f"T{drill_tool['tool_number']} M06")
-        lines.append(f"G43 H{drill_tool['tool_number']}")
-        lines.append(f"S{d_rpm} M03")
-        lines.append(f"G00 Z5.000")
+        # Separate holes by matching drill
+        available_drills = [t for t in tool_lib.get("tools", []) if t.get("type") == "drill"]
+        hole_groups = {}  # tool_number: (drill_tool_dict, [holes])
+        unmatched_drill_holes = []
 
         for h in vertical_holes:
+            h_diam = h.get("diameter_mm", h.get("radius_mm", 3.0) * 2.0)
+            if available_drills:
+                best_drill = min(available_drills, key=lambda t: abs(t.get("diameter_mm", 0.0) - h_diam))
+                if abs(best_drill.get("diameter_mm", 0.0) - h_diam) <= 0.6:
+                    t_num = best_drill["tool_number"]
+                    if t_num not in hole_groups:
+                        hole_groups[t_num] = (best_drill, [])
+                    hole_groups[t_num][1].append(h)
+                else:
+                    unmatched_drill_holes.append(h)
+            else:
+                unmatched_drill_holes.append(h)
+
+        # Emit G-code for each drill tool group
+        for t_num, (d_tool, grp_holes) in sorted(hole_groups.items()):
+            t_name = d_tool.get("name", f"Drill T{t_num}")
+            t_diam = d_tool.get("diameter_mm", 0.0)
+            lines.append(f"\n; -------------------------------------------------------------")
+            lines.append(f"; OP 3: Vertical Hole Peck Drilling (Tool T{t_num}: {t_name}, Diam={t_diam:.1f}mm, {len(grp_holes)} hole(s))")
+            lines.append(f"; -------------------------------------------------------------")
+            lines.append(f"T{t_num} M06")
+            lines.append(f"G43 H{t_num}")
+            lines.append(f"S{d_rpm} M03")
+            lines.append(f"G00 Z5.000")
+
+            for h in grp_holes:
+                cx, cy = h["center_xy_mm"]
+                h_depth = h.get("depth_from_external_top_mm", h.get("depth_mm", 10.0))
+                lines.append(f"\n; Hole {h.get('id', 'hole')}: Center=({cx:.3f}, {cy:.3f}), Diam={h.get('diameter_mm', t_diam):.2f}mm, Depth=-{h_depth:.3f} mm")
+                lines.append(f"G00 X{cx:.3f} Y{cy:.3f}")
+                lines.append(f"G00 Z2.000")
+                cur_z = 0.0
+                while cur_z < h_depth:
+                    cur_z = min(h_depth, cur_z + peck_q)
+                    lines.append(f"G01 Z-{cur_z:.3f} F{d_feed}")
+                    lines.append(f"G00 Z2.000")
+                    if cur_z < h_depth:
+                        lines.append(f"G01 Z-{(cur_z - 0.5):.3f} F600")
+                lines.append("G00 Z5.000")
+
+        # For holes with no matching drill, helical mill them with finishing endmill
+        if unmatched_drill_holes:
+            mill_tool = finish_tool if finish_tool else rough_tool
+            m_diam = mill_tool.get("diameter_mm", 6.0)
+            f_rpm = params.get("pocket_finishing", {}).get("spindle_rpm", 10000)
+            f_feed = params.get("pocket_finishing", {}).get("feedrate_mm_min", 800)
+            lines.append(f"\n; -------------------------------------------------------------")
+            lines.append(f"; OP 3b: Helical Milling for Non-Standard Holes (Tool T{mill_tool['tool_number']}: {mill_tool['name']})")
+            lines.append(f"; -------------------------------------------------------------")
+            lines.append(f"T{mill_tool['tool_number']} M06")
+            lines.append(f"G43 H{mill_tool['tool_number']}")
+            lines.append(f"S{f_rpm} M03")
+            lines.append(f"G00 Z5.000")
+
+            for h in unmatched_drill_holes:
+                cx, cy = h["center_xy_mm"]
+                h_diam = h.get("diameter_mm", 10.0)
+                h_depth = h.get("depth_from_external_top_mm", h.get("depth_mm", 10.0))
+                helix_r = max(0.1, (h_diam - m_diam) / 2.0)
+                lines.append(f"\n; Bore {h.get('id', 'hole')}: Center=({cx:.3f}, {cy:.3f}), Diam={h_diam:.2f}mm, Depth=-{h_depth:.3f} mm")
+                lines.append(f"G00 X{(cx + helix_r):.3f} Y{cy:.3f}")
+                lines.append(f"G00 Z2.000")
+                z_step = 1.0
+                cur_z = 0.0
+                while cur_z < h_depth:
+                    cur_z = min(h_depth, cur_z + z_step)
+                    lines.append(f"G02 X{(cx + helix_r):.3f} Y{cy:.3f} I{-helix_r:.3f} J0.000 Z-{cur_z:.3f} F{f_feed}")
+                lines.append(f"G02 X{(cx + helix_r):.3f} Y{cy:.3f} I{-helix_r:.3f} J0.000 F{f_feed}")
+                lines.append("G00 Z5.000")
+
+    # =========================================================================
+    # OPERATION 4: Chamfer & Countersink Passes (Tool T6: 12mm 90deg Chamfer Mill)
+    # =========================================================================
+    chamfer_tool = get_tool(6, tool_lib)
+    pocket_chamfers = [p for p in pockets if p.get("top_rim_chamfer", {}).get("has_chamfer", False)]
+    hole_countersinks = [h for h in vertical_holes if h.get("top_countersink", {}).get("has_countersink", False)]
+
+    if chamfer_tool and (pocket_chamfers or hole_countersinks):
+        ch_rpm = chamfer_tool.get("recommended_feeds_speeds", {}).get("aluminum_6061", {}).get("spindle_rpm", 7000)
+        ch_feed = chamfer_tool.get("recommended_feeds_speeds", {}).get("aluminum_6061", {}).get("chamfer_feed_mm_per_min", 800)
+
+        lines.append(f"\n; -------------------------------------------------------------")
+        lines.append(f"; OP 4: Top Rim Chamfers & Countersinks (Tool T{chamfer_tool['tool_number']}: {chamfer_tool['name']})")
+        lines.append(f"; -------------------------------------------------------------")
+        lines.append(f"T{chamfer_tool['tool_number']} M06")
+        lines.append(f"G43 H{chamfer_tool['tool_number']}")
+        lines.append(f"S{ch_rpm} M03")
+        lines.append(f"G00 Z5.000")
+
+        # 4A. Pocket perimeters
+        for p in pocket_chamfers:
+            ch_info = p["top_rim_chamfer"]
+            ch_depth = float(ch_info.get("depth_mm", 1.0))
+            pts = p.get("boundary_polygon_xy", [])
+            if len(pts) >= 3:
+                lines.append(f"\n; Chamfer {p.get('id', 'pocket')} rim at Z=-{ch_depth:.3f} mm")
+                p0 = pts[0]
+                lines.append(f"G00 X{p0[0]:.3f} Y{p0[1]:.3f}")
+                lines.append(f"G01 Z-{ch_depth:.3f} F400")
+                for pt in pts[1:]:
+                    lines.append(f"G01 X{pt[0]:.3f} Y{pt[1]:.3f} F{ch_feed}")
+                if pts[0] != pts[-1]:
+                    lines.append(f"G01 X{p0[0]:.3f} Y{p0[1]:.3f} F{ch_feed}")
+                lines.append(f"G00 Z5.000")
+
+        # 4B. Hole countersinks
+        for h in hole_countersinks:
+            cs_info = h["top_countersink"]
+            cs_depth = float(cs_info.get("depth_mm", 1.0))
             cx, cy = h["center_xy_mm"]
-            h_depth = h.get("depth_from_external_top_mm", h.get("depth_mm", 10.0))
-            lines.append(f"\n; Hole {h.get('id', 'hole')}: Center=({cx:.3f}, {cy:.3f}), Depth=-{h_depth:.3f} mm")
+            lines.append(f"\n; Countersink {h.get('id', 'hole')} center=({cx:.3f}, {cy:.3f}) depth=-{cs_depth:.3f} mm")
             lines.append(f"G00 X{cx:.3f} Y{cy:.3f}")
             lines.append(f"G00 Z2.000")
-            cur_z = 0.0
-            while cur_z < h_depth:
-                cur_z = min(h_depth, cur_z + peck_q)
-                lines.append(f"G01 Z-{cur_z:.3f} F{d_feed}")
-                lines.append(f"G00 Z2.000")
-                if cur_z < h_depth:
-                    lines.append(f"G01 Z-{(cur_z - 0.5):.3f} F600")
-            lines.append("G00 Z5.000")
+            lines.append(f"G01 Z-{cs_depth:.3f} F400")
+            lines.append(f"G00 Z5.000")
 
     # -------------------------------------------------------------
     # Program End
@@ -657,6 +777,12 @@ def generate_all_toolpaths(features_path, tools_path, strategies_path, out_dir, 
     print(f" Strategy Plan    : {strategies_path}")
     print(f" Output Directory : {out_dir}")
     print("=" * 70)
+
+    slanted_surfaces = features.get("features", {}).get("setup_1_top_3axis", {}).get("slanted_surfaces", [])
+    if slanted_surfaces:
+        print(f"[i] Part contains {len(slanted_surfaces)} slanted/ruled surface(s):")
+        for s in slanted_surfaces:
+            print(f"    - {s.get('id', 'slant')}: Tilt {s.get('tilt_angle_from_horizontal_deg')}°, Z range {s.get('z_height_range_mm')}")
 
     # -------------------------------------------------------------
     # Slicing Worker: Pre-compute exact B-Rep cross-sections if STEP CAD provided
