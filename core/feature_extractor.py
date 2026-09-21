@@ -51,12 +51,15 @@ def extract_dxf(dxf_path, stock_z=10.0, pocket_depth=4.0):
         cx, cy, _ = circle.dxf.center
         r = round(circle.dxf.radius, 3)
         holes.append({
-            "id": f"hole_{len(holes)+1}",
+            "id": f"vertical_hole_{len(holes)+1}",
             "diameter_mm": round(r * 2.0, 3),
             "radius_mm": r,
             "center_xy_mm": [round(cx, 3), round(cy, 3)],
+            "depth_from_external_top_mm": round(stock_z, 3),
             "depth_mm": round(stock_z, 3),
-            "is_through_hole": True
+            "is_through_hole": True,
+            "top_countersink": {"has_countersink": False},
+            "volume_mm3": round(math.pi * (r ** 2) * stock_z, 2)
         })
         
     pockets = []
@@ -74,11 +77,17 @@ def extract_dxf(dxf_path, stock_z=10.0, pocket_depth=4.0):
             
         detected_r = 3.0
         internal_radii.append(detected_r)
+        boundary_poly = [[round(p[0], 3), round(p[1], 3)] for p in pts]
         
         pockets.append({
             "id": f"pocket_{len(pockets)+1}",
+            "type": "prismatic_pocket",
             "floor_z_mm": round(stock_z - pocket_depth, 3),
+            "depth_from_external_top_mm": round(pocket_depth, 3),
             "depth_mm": round(pocket_depth, 3),
+            "boundary_polygon_xy": boundary_poly,
+            "island_polygons_xy": [],
+            "min_cavity_width_mm": round(min(poly_w, poly_l), 2),
             "bounds": {
                 "min_x": round(min(xs), 3),
                 "max_x": round(max(xs), 3),
@@ -87,13 +96,20 @@ def extract_dxf(dxf_path, stock_z=10.0, pocket_depth=4.0):
                 "width_x_mm": round(poly_w, 3),
                 "length_y_mm": round(poly_l, 3)
             },
+            "top_opening_dimensions": {
+                "width_x_mm": round(poly_w, 3),
+                "length_y_mm": round(poly_l, 3)
+            },
+            "top_rim_chamfer": {"has_chamfer": False},
             "center_mm": [round((min(xs) + max(xs)) / 2.0, 3), round((min(ys) + max(ys)) / 2.0, 3)],
             "min_corner_radius_mm": detected_r,
-            "max_tool_diameter_mm": round(detected_r * 2.0, 3)
+            "max_tool_diameter_mm": round(detected_r * 2.0, 3),
+            "volume_mm3": round(poly_w * poly_l * pocket_depth, 2)
         })
         
     min_internal_r = min(internal_radii) if internal_radii else None
-    all_depths = [p["depth_mm"] for p in pockets] + [h["depth_mm"] for h in holes]
+    all_depths = [p["depth_from_external_top_mm"] for p in pockets] + [h["depth_from_external_top_mm"] for h in holes]
+    all_floors = sorted(list(set(round(p["depth_from_external_top_mm"], 3) for p in pockets if p["depth_from_external_top_mm"] > 0)))
     
     return {
         "source_cad_file": os.path.basename(dxf_path),
@@ -110,13 +126,17 @@ def extract_dxf(dxf_path, stock_z=10.0, pocket_depth=4.0):
         },
         "stock_requirements": stock_dims,
         "features": {
-            "pockets": pockets,
-            "holes": holes
+            "setup_1_top_3axis": {
+                "pockets": pockets,
+                "vertical_holes": holes,
+                "slanted_surfaces": []
+            }
         },
         "machinability_constraints": {
             "min_internal_corner_radius_mm": min_internal_r,
             "max_tool_diam_for_corners_mm": round(min_internal_r * 2, 3) if min_internal_r else None,
-            "deepest_feature_depth_mm": max(all_depths, default=0.0)
+            "deepest_feature_depth_mm": max(all_depths, default=0.0),
+            "all_floor_depths_mm": all_floors
         }
     }
 
