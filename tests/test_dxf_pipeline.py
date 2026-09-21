@@ -29,7 +29,7 @@ class TestDxfPipeline(unittest.TestCase):
         features_out = os.path.join(self.temp_dir.name, "dxf_features.json")
         cmd = [
             "python3",
-            os.path.join(AGENT_DIR, "01_feature_extractor.py"),
+            os.path.join(AGENT_DIR, "core", "feature_extractor.py"),
             "--input", DXF_SAMPLE,
             "--output", features_out
         ]
@@ -58,7 +58,7 @@ class TestDxfPipeline(unittest.TestCase):
         features_out = os.path.join(self.temp_dir.name, "dxf_features.json")
         subprocess.run([
             "python3",
-            os.path.join(AGENT_DIR, "01_feature_extractor.py"),
+            os.path.join(AGENT_DIR, "core", "feature_extractor.py"),
             "--input", DXF_SAMPLE,
             "--output", features_out
         ], check=True)
@@ -68,7 +68,7 @@ class TestDxfPipeline(unittest.TestCase):
 
         cmd = [
             "python3",
-            os.path.join(AGENT_DIR, "02_llm_planner.py"),
+            os.path.join(AGENT_DIR, "core", "llm_planner.py"),
             "--features", features_out,
             "--tools", tools_file,
             "--out", strategies_out

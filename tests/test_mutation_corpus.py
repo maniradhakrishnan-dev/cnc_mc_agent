@@ -14,11 +14,8 @@ import tempfile
 import importlib
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-camotics_verifier = importlib.import_module("04_camotics_verifier")
-analyze_gcode_safety_and_kinematics = camotics_verifier.analyze_gcode_safety_and_kinematics
-
-critique_evaluator = importlib.import_module("05b_critique_evaluator")
-evaluate_run = critique_evaluator.evaluate_run
+from core.camotics_verifier import analyze_gcode_safety_and_kinematics
+from core.critique_evaluator import evaluate_run
 
 
 class TestMutationCorpus(unittest.TestCase):

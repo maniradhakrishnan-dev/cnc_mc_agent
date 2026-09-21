@@ -26,10 +26,13 @@ import uuid
 from datetime import datetime
 
 AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
+CORE_DIR = os.path.join(AGENT_DIR, "core")
 RUNS_BASE_DIR = os.path.join(AGENT_DIR, "runs")
 
 def run_step(step_num, step_name, script_name, args_list):
-    script_path = os.path.join(AGENT_DIR, script_name)
+    script_path = os.path.join(CORE_DIR, script_name)
+    if not os.path.exists(script_path):
+        script_path = os.path.join(AGENT_DIR, script_name)
     if shutil.which("uv"):
         cmd = ["uv", "run", script_path] + args_list
     else:
@@ -275,7 +278,7 @@ def main():
     t_total_start = time.time()
 
     # Step 1: Feature Extraction & 3-Tier Mathematical Audit (Run once)
-    run_step(1, "Deterministic Feature Extraction", "01_feature_extractor.py", [
+    run_step(1, "Deterministic Feature Extraction", "feature_extractor.py", [
         "--input", cad_file,
         "--output", features_json
     ])
@@ -338,10 +341,10 @@ def main():
         if feedback_file and os.path.exists(feedback_file):
             planner_args += ["--feedback", feedback_file]
 
-        run_step(f"2.{iteration}", f"Multi-Objective Strategy Planner [Iter {iteration}]", "02_llm_planner.py", planner_args)
+        run_step(f"2.{iteration}", f"Multi-Objective Strategy Planner [Iter {iteration}]", "llm_planner.py", planner_args)
 
         # Step 3: Toolpath & G-Code Generator
-        run_step(f"3.{iteration}", f"Machine-Ready G-Code Generator [Iter {iteration}]", "03_toolpath_generator.py", [
+        run_step(f"3.{iteration}", f"Machine-Ready G-Code Generator [Iter {iteration}]", "toolpath_generator.py", [
             "--cad", cad_file,
             "--features", features_json,
             "--tools", archived_tools,
@@ -350,14 +353,14 @@ def main():
         ])
 
         # Step 4: CAMotics Simulation & Rapid Safety Verifier
-        run_step(f"4.{iteration}", f"CAMotics Simulation & Safety Verifier [Iter {iteration}]", "04_camotics_verifier.py", [
+        run_step(f"4.{iteration}", f"CAMotics Simulation & Safety Verifier [Iter {iteration}]", "camotics_verifier.py", [
             "--features", features_json,
             "--tools", archived_tools,
             "--gcode-dir", iter_dir
         ])
 
         # Step 5: Surface Deviation & Metrological Verifier
-        run_step(f"5.{iteration}", f"Surface Deviation & Metrological Verifier [Iter {iteration}]", "05_surface_comparator.py", [
+        run_step(f"5.{iteration}", f"Surface Deviation & Metrological Verifier [Iter {iteration}]", "surface_comparator.py", [
             "--cad", cad_file,
             "--features", features_json,
             "--sim", iter_sim,
@@ -366,7 +369,7 @@ def main():
         ])
 
         # Step 5b: Diagnostic Critique Evaluator
-        run_step(f"5b.{iteration}", f"Diagnostic Critique & Convergence Evaluator [Iter {iteration}]", "05b_critique_evaluator.py", [
+        run_step(f"5b.{iteration}", f"Diagnostic Critique & Convergence Evaluator [Iter {iteration}]", "critique_evaluator.py", [
             "--sim", iter_sim,
             "--deviations", iter_dev,
             "--tools", archived_tools,
@@ -426,7 +429,7 @@ def main():
         json.dump(iteration_history, f, indent=2)
 
     # Step 6: Interactive Pareto Report Generator
-    run_step(6, "Pareto Frontier Report Generator", "06_report_generator.py", [
+    run_step(6, "Pareto Frontier Report Generator", "report_generator.py", [
         "--features", os.path.join(run_dir, "features.json"),
         "--sim", os.path.join(run_dir, "simulation_results.json"),
         "--deviations", os.path.join(run_dir, "deviations.json"),

@@ -11,9 +11,7 @@ import json
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import importlib
-evaluator = importlib.import_module("05b_critique_evaluator")
-evaluate_run = evaluator.evaluate_run
+from core.critique_evaluator import evaluate_run
 
 
 class TestPredictionGapAnalysis(unittest.TestCase):

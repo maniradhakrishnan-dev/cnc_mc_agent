@@ -83,20 +83,31 @@ cnc-agent/
 ├── pyproject.toml              # Package configuration & console entrypoint
 ├── README.md                   # Documentation
 ├── run_pipeline.py             # Master closed-loop orchestrator CLI
-├── 01_feature_extractor.py     # Stage 1: STEP / DXF feature extraction
-├── _extract_worker.py          # FreeCAD worker for B-Rep topology inspection
-├── 02_llm_planner.py           # Stage 2: Gemini strategy planner (feedback-aware)
-├── 03_toolpath_generator.py    # Stage 3: Z-level B-Rep toolpath generator
-├── _slice_worker.py            # FreeCAD worker for cross-section slicing
-├── 04_camotics_verifier.py     # Stage 4: CAMotics simulation & safety audit
-├── 05_surface_comparator.py    # Stage 5: Nominal CAD vs. cut mesh comparator
-├── _surface_worker.py          # FreeCAD worker for OpenCASCADE surface projection
-├── 05b_critique_evaluator.py   # Stage 5b: Diagnostic critique & convergence engine
-├── 06_report_generator.py      # Stage 6: HTML report with convergence timeline
 ├── tool_library.json           # Standard CNC tooling catalog
-├── .env                        # Environment variables (GEMINI_API_KEY)
-├── schemas/                    # Pydantic / JSON validation schemas
+├── .env.example                # Template for environment variables (GEMINI_API_KEY)
+├── sample_part.step & .dxf     # Benchmark test parts
+├── schemas/                    # Pydantic v2 validation models & JSON schemas
+│   ├── models.py
+│   ├── features.schema.json
+│   └── verification.schema.json
+├── tests/                      # Automated test suite (unit, mutation, refusal, DXF)
+│   ├── test_refusal_case.py
+│   ├── test_mutation_corpus.py
+│   ├── test_prediction_gap.py
+│   └── test_dxf_pipeline.py
 ├── step/                       # Test CAD models
+├── core/                       # Core Agent Engine & Verification Stages
+│   ├── __init__.py             # Package exports
+│   ├── feature_extractor.py    # Stage 1: STEP / DXF feature extraction
+│   ├── _extract_worker.py      # FreeCAD worker for B-Rep topology inspection
+│   ├── llm_planner.py          # Stage 2: Gemini strategy planner (feedback-aware)
+│   ├── toolpath_generator.py   # Stage 3: Z-level B-Rep toolpath generator
+│   ├── _slice_worker.py        # FreeCAD worker for cross-section slicing
+│   ├── camotics_verifier.py    # Stage 4: CAMotics simulation & safety audit
+│   ├── surface_comparator.py   # Stage 5: Nominal CAD vs. cut mesh comparator
+│   ├── _surface_worker.py      # FreeCAD worker for OpenCASCADE surface projection
+│   ├── critique_evaluator.py   # Stage 5b: Diagnostic critique & convergence engine
+│   └── report_generator.py     # Stage 6: HTML report with convergence timeline
 └── runs/                       # Isolated outputs per pipeline run
     └── run_<id>/
         ├── iter_1/             # Iteration 1 simulation, G-code, critique
