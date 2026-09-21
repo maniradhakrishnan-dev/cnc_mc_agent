@@ -819,8 +819,10 @@ def generate_all_toolpaths(features_path, tools_path, strategies_path, out_dir, 
         slices_tmp = os.path.join(out_dir, "slices.json")
 
         print(f"[+] Invoking FreeCAD B-Rep Slicer for {len(z_list)} distinct Z-levels (depth {deepest:.1f}mm)...")
-        cmd = ["freecadcmd", SLICE_WORKER, "--", cad_path, slices_tmp, json.dumps(z_list)]
-        proc = subprocess.run(cmd, capture_output=True, text=True)
+        env = os.environ.copy()
+        env["FREECAD_MCP_TESTING"] = "1"
+        cmd = ["freecadcmd", "--disable-addon", "RobustMCPBridge", SLICE_WORKER, "--", cad_path, slices_tmp, json.dumps(z_list)]
+        proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
 
         if os.path.exists(slices_tmp):
             with open(slices_tmp) as f:

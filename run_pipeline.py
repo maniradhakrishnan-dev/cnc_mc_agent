@@ -56,9 +56,11 @@ def run_freecad_worker(step_num, step_name, script_name, args_list):
     script_path = os.path.join(CORE_DIR, script_name)
     if not os.path.exists(script_path):
         script_path = os.path.join(AGENT_DIR, script_name)
-    cmd = ["freecadcmd", script_path, "--"] + args_list
+    env = os.environ.copy()
+    env["FREECAD_MCP_TESTING"] = "1"
+    cmd = ["freecadcmd", "--disable-addon", "RobustMCPBridge", script_path, "--"] + args_list
     t0 = time.time()
-    res = subprocess.run(cmd, capture_output=True, text=True)
+    res = subprocess.run(cmd, capture_output=True, text=True, env=env)
     elapsed = time.time() - t0
     if res.returncode != 0:
         print(f"\n[❌] PIPELINE ERROR at Step {step_num}: {step_name}")

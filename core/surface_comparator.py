@@ -68,8 +68,10 @@ def run_surface_comparison(cad_path, features_path, sim_results_path, strategies
     # 3. Run FreeCAD worker to measure mesh volumes and bounds
     out_dir = os.path.dirname(os.path.abspath(out_json))
     mesh_analysis_tmp = os.path.join(out_dir, "mesh_analysis.json")
-    cmd = ["freecadcmd", WORKER_SCRIPT, cad_path, mesh_analysis_tmp, features_path]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    env = os.environ.copy()
+    env["FREECAD_MCP_TESTING"] = "1"
+    cmd = ["freecadcmd", "--disable-addon", "RobustMCPBridge", WORKER_SCRIPT, cad_path, mesh_analysis_tmp, features_path]
+    proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
     if not os.path.exists(mesh_analysis_tmp):
         print("[!] FreeCAD surface worker failed to produce mesh_analysis.json")
         sys.exit(1)
