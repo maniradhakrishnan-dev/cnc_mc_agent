@@ -170,7 +170,7 @@ def run_extraction_proof(step_path, features_path, output_path, tolerance_pct=2.
     fidelity_pct = round(max(0.0, (1.0 - (unmatched_volume / max(1.0, s_nominal_volume))) * 100.0), 2)
     max_allowed_residual = max(5.0, s_nominal_volume * (tolerance_pct / 100.0))
 
-    passed = (unmatched_volume <= max_allowed_residual) and (extra_volume <= 1.0)
+    passed = (unmatched_volume <= max_allowed_residual) and (extra_volume <= max_allowed_residual) and (total_residual <= max_allowed_residual)
 
     result = {
         "status": "PASS" if passed else "FAIL",
