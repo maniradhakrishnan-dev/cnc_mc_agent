@@ -79,7 +79,7 @@ An autonomous closed-loop CNC CAM agent that accepts arbitrary 3D CAD models (ST
 ## Directory Structure
 
 ```
-cnc_agent/
+cnc-agent/
 ├── pyproject.toml              # Package configuration & console entrypoint
 ├── README.md                   # Documentation
 ├── run_pipeline.py             # Master closed-loop orchestrator CLI
@@ -122,33 +122,80 @@ cnc_agent/
 
 ## Prerequisites
 
-1. **Python 3.11+**
+1. **Astral `uv`** (Python package & environment manager):
+   ```bash
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
 2. **FreeCAD 1.0+** CLI (`freecadcmd`):
    ```bash
    sudo apt-get install freecad
-   # Ensure `freecadcmd` is available in PATH
+   # Verifies FreeCAD B-Rep geometry kernel is available in PATH
    ```
 3. **CAMotics** CLI (`camsim`):
    ```bash
    sudo apt-get install camotics
-   # Ensure `camsim` is available in PATH
+   # Verifies voxel cutting simulation engine is available in PATH
    ```
-4. **Gemini API Key** (optional, deterministic physics planner available as fallback):
+4. **Gemini API Key** *(Optional: deterministic physics planner activates automatically if omitted)*:
    ```bash
    export GEMINI_API_KEY="your-api-key"
-   # Or set in cnc_agent/.env
+   # Or configure in .env (see .env.example)
    ```
 
 ---
+
+## Installation & Setup
+
+Setup is completely automated with `uv`:
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/maniradhakrishnan-dev/cnc-agent.git
+cd cnc-agent
+
+# 2. (Optional) Create environment file for LLM planner
+cp .env.example .env
+
+# 3. Synchronize virtual environment & all dependencies
+uv sync
+```
+
+---
+
+## Pre-Flight System Doctor
+
+Run the built-in system doctor to verify your Python environment, CAD/CAM binaries, and computational geometry libraries in 1 second:
+
+```bash
+uv run cnc-agent --doctor
+```
+
+Expected output:
+```text
+===========================================================================
+ 🩺 CNC AGENT PRE-FLIGHT SYSTEM DOCTOR
+===========================================================================
+ [✓] Python Version     : 3.11.x (Required: >= 3.11)
+ [✓] Package Manager    : uv
+ [✓] CAD Kernel Engine  : FreeCAD 1.x (freecadcmd)
+ [✓] Voxel Simulator    : camsim
+ [✓] Library: pydantic  : v2.x (Pydantic v2 Models)
+ [✓] Library: shapely   : v2.x (2D Computational Geometry)
+ [✓] Library: trimesh   : v5.x (3D Mesh Processing)
+ [✓] Library: numpy     : v2.x (Numerical Computing)
+ [✓] Library: ezdxf     : v1.x (DXF CAD Parser)
+===========================================================================
+ [STATUS: SYSTEM READY] All critical dependencies are verified.
+===========================================================================
+```
 
 ---
 
 ## Verification & Testing Suite
 
-The agent includes an automated test suite matching all specifications from `REQ.md`:
+Run the automated test suite matching all specifications from `REQ.md`:
 
 ```bash
-# Run all unit and integration tests (0.8s execution time)
 uv run python3 -m unittest discover tests
 ```
 
@@ -160,35 +207,42 @@ Tests included:
 
 ---
 
-## Quickstart
+## Quickstart: Running the Agent
 
-1. **Run Pre-Flight System Doctor**:
-   ```bash
-   cd cnc_agent
-   uv run cnc-agent --doctor
-   ```
+### 1. Execute on 3D CAD Drawing (STEP)
+```bash
+uv run cnc-agent step/01_simple_holes_plate.step
+```
 
-2. **Execute Full Pipeline on 3D CAD Drawing (STEP)**:
-   ```bash
-   uv run cnc-agent step/01_simple_holes_plate.step
-   ```
+### 2. Execute on 2D Mechanical Drawing (DXF)
+```bash
+uv run cnc-agent sample_part.dxf
+```
 
-3. **Execute Full Pipeline on 2D Mechanical Drawing (DXF)**:
-   ```bash
-   uv run cnc-agent sample_part.dxf
-   ```
+### 3. Customize Iteration Limits and Tolerances
+```bash
+uv run cnc-agent step/machining_block_03.step \
+    --run-id block03_prod \
+    --max-iterations 3 \
+    --target-accuracy-scallop-um 35.0 \
+    --target-balanced-scallop-um 75.0
+```
 
-4. **Customize Iteration Limits and Tolerances**:
-   ```bash
-   uv run cnc-agent step/machining_block_03.step \
-       --run-id block03_prod \
-       --max-iterations 3 \
-       --target-accuracy-scallop-um 35.0 \
-       --target-balanced-scallop-um 75.0
-   ```
+---
 
-5. **Inspect the Results**:
-   - **Interactive HTML Report**: `runs/<run_id>/frontier_report.html` (open in web browser)
-   - **3D Cut Simulation**: `camotics runs/<run_id>/1_cycle_time.camotics`
-   - **Machine-Ready G-Code**: `runs/<run_id>/1_cycle_time.ngc`, `2_accuracy_tuned.ngc`, `3_balanced.ngc`
-   - **Diagnostic Critique & Prediction Gaps**: `runs/<run_id>/critique.json`
+## Inspecting Outputs
+
+All run artifacts are saved under `runs/<run_id>/`:
+
+- **Interactive HTML Pareto Report**:
+  ```bash
+  xdg-open runs/<run_id>/frontier_report.html
+  ```
+- **3D Cut Simulation** (workpiece voxel removal):
+  ```bash
+  camotics runs/<run_id>/1_cycle_time.camotics &
+  ```
+- **Machine-Ready G-Code**:
+  `runs/<run_id>/1_cycle_time.ngc`, `2_accuracy_tuned.ngc`, `3_balanced.ngc`
+- **Convergence History & Critique**:
+  `runs/<run_id>/iteration_history.json`, `runs/<run_id>/critique.json`
