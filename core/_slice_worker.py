@@ -86,10 +86,23 @@ def slice_negative_space(step_file, output_json, z_levels_spec=None):
     slices_dict = {}
     for z_g in z_gcode_list:
         z_cad = top_z + z_g
-        # Add small offset (+0.05mm) to avoid slicing right on exact face boundaries (e.g. floor planes)
-        slice_z_cad = max(bottom_z + 0.01, min(top_z - 0.01, z_cad + 0.05))
+        # Clamp within valid stock bounds
+        target_z = max(bottom_z + 0.001, min(top_z - 0.001, z_cad))
 
+        # 1. First attempt exact Z slicing
+        slice_z_cad = target_z
         wires = negative.slice(FreeCAD.Vector(0, 0, 1), float(slice_z_cad))
+
+        # 2. If on exact boundary with zero wires, retry with tiny upward epsilon (+0.01mm)
+        if not wires and (target_z + 0.01) < (top_z - 0.001):
+            slice_z_cad = target_z + 0.01
+            wires = negative.slice(FreeCAD.Vector(0, 0, 1), float(slice_z_cad))
+
+        # 3. If still no wires, retry with tiny downward epsilon (-0.01mm)
+        if not wires and (target_z - 0.01) > (bottom_z + 0.001):
+            slice_z_cad = target_z - 0.01
+            wires = negative.slice(FreeCAD.Vector(0, 0, 1), float(slice_z_cad))
+
         wire_data = []
         for w in wires:
             # Discretize wire to fine XY point sequence (deflection 0.05mm gives sub-0.1mm chord accuracy)
