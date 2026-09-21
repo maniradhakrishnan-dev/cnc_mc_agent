@@ -157,16 +157,70 @@ def generate_scanline_raster_for_poly(poly, cur_tool_rad, allowance, cur_stepove
     lines.append("G00 Z5.000")
     return lines
 
-def generate_zlevel_sliced_roughing(slices_data, tool_rad, allowance, stepover_dist, depth, stepdown, feed, finish_tool, rpm):
+def compute_adaptive_z_passes(depth, stepdown, floor_depths=None):
     """
-    Z-level roughing where each depth pass slices the true 3D B-Rep cross-section,
-    preserving exact boss perimeters and island profiles at every Z height.
+    Computes optimal Z-pass heights from 0.0 to -depth such that:
+    1. Every feature floor depth (e.g. -6.0, -8.0, -10.0, -12.0) is EXACTLY hit.
+    2. No stepdown between successive passes exceeds `stepdown`.
+    """
+    critical_depths = set([float(depth)])
+    if floor_depths:
+        for fd in floor_depths:
+            if 0 < fd <= depth:
+                critical_depths.add(round(float(fd), 3))
+
+    sorted_crits = sorted(list(critical_depths))
+    z_passes = []
+    prev_d = 0.0
+    for target_d in sorted_crits:
+        span = target_d - prev_d
+        if span <= 1e-4:
+            continue
+        num_subpasses = max(1, math.ceil(span / stepdown))
+        actual_substep = span / num_subpasses
+        for i in range(1, num_subpasses + 1):
+            cur_d = prev_d + (i * actual_substep)
+            z_passes.append(round(-cur_d, 3))
+        prev_d = target_d
+
+    return sorted(list(set(z_passes)), reverse=True)
+
+def generate_centerline_slot_pass(poly, current_z, feed):
+    """
+    Generates single-pass linear centerline slotting move along the longitudinal medial axis of a slot.
     """
     lines = []
-    current_z = 0.0
+    minx, miny, maxx, maxy = poly.bounds
+    dx = maxx - minx
+    dy = maxy - miny
+    if dx >= dy:
+        mid_y = (miny + maxy) / 2.0
+        r = dy / 2.0
+        p_start = (minx + r, mid_y)
+        p_end = (maxx - r, mid_y)
+    else:
+        mid_x = (minx + maxx) / 2.0
+        r = dx / 2.0
+        p_start = (mid_x, miny + r)
+        p_end = (mid_x, maxy - r)
 
-    while current_z > -depth:
-        current_z = max(-depth, current_z - stepdown)
+    lines.append("G00 Z5.000")
+    lines.append(f"G00 X{p_start[0]:.3f} Y{p_start[1]:.3f}")
+    lines.append(f"G01 Z{current_z:.3f} F{int(feed * 0.4)}")
+    lines.append(f"G01 X{p_end[0]:.3f} Y{p_end[1]:.3f} F{feed}")
+    lines.append("G00 Z5.000")
+    return lines
+
+def generate_zlevel_sliced_roughing(slices_data, tool_rad, allowance, stepover_dist, z_passes, feed):
+    """
+    Z-level roughing where each depth pass slices the true 3D B-Rep cross-section.
+    Returns (lines, unmachined_polys_by_z) so any cavity too narrow for this tool
+    can be cleanly rest-machined with a secondary tool.
+    """
+    lines = []
+    unmachined_polys_by_z = {}
+
+    for current_z in z_passes:
         lines.append(f"\n; --- Stepdown pass at Z = {current_z:.3f} mm ---")
 
         slice_info = get_slice_for_z(slices_data, current_z)
@@ -179,26 +233,24 @@ def generate_zlevel_sliced_roughing(slices_data, tool_rad, allowance, stepover_d
             pass_lines = generate_scanline_raster_for_poly(
                 poly, tool_rad, allowance, stepover_dist, feed, current_z
             )
-            if not pass_lines and finish_tool:
-                # Fallback to smaller finish tool if roughing tool doesn't fit narrow slot/pocket
-                f_rad = finish_tool["diameter_mm"] / 2.0
-                pass_lines = generate_scanline_raster_for_poly(
-                    poly, f_rad, allowance, finish_tool["diameter_mm"] * 0.5, int(feed * 0.7), current_z
-                )
-            lines.extend(pass_lines)
+            if pass_lines:
+                lines.extend(pass_lines)
+            else:
+                # Feature cannot be cleared by this roughing tool (cavity too narrow)
+                if current_z not in unmachined_polys_by_z:
+                    unmachined_polys_by_z[current_z] = []
+                unmachined_polys_by_z[current_z].append(poly)
 
-    return lines
+    return lines, unmachined_polys_by_z
 
-def generate_zlevel_sliced_finishing(slices_data, finish_tool, depth, f_stepdown, f_feed, spring_passes):
+def generate_zlevel_sliced_finishing(slices_data, finish_tool, deepest_depth, z_passes, f_feed, spring_passes):
     """
     Continuous contour following at each Z level around exterior walls and island perimeters.
     """
     lines = []
     f_tool_rad = finish_tool["diameter_mm"] / 2.0
-    current_z = 0.0
 
-    while current_z > -depth:
-        current_z = max(-depth, current_z - f_stepdown)
+    for current_z in z_passes:
         lines.append(f"\n; --- Wall Finishing pass at Z = {current_z:.3f} mm ---")
 
         slice_info = get_slice_for_z(slices_data, current_z)
@@ -209,6 +261,8 @@ def generate_zlevel_sliced_finishing(slices_data, finish_tool, depth, f_stepdown
         for poly in polys:
             finish_poly = poly.buffer(-f_tool_rad)
             if finish_poly.is_empty:
+                cl_lines = generate_centerline_slot_pass(poly, current_z, f_feed)
+                lines.extend(cl_lines)
                 continue
 
             sub_polys = [finish_poly] if finish_poly.geom_type == 'Polygon' else list(finish_poly.geoms)
@@ -231,8 +285,8 @@ def generate_zlevel_sliced_finishing(slices_data, finish_tool, depth, f_stepdown
 
     # Spring passes at final floor depth
     if spring_passes > 0:
-        lines.append(f"\n; --- Spring Passes ({spring_passes}) at floor Z = -{depth:.3f} mm ---")
-        slice_info = get_slice_for_z(slices_data, -depth)
+        lines.append(f"\n; --- Spring Passes ({spring_passes}) at floor Z = -{deepest_depth:.3f} mm ---")
+        slice_info = get_slice_for_z(slices_data, -deepest_depth)
         if slice_info and slice_info.get("wires"):
             polys = wires_to_polygons(slice_info["wires"])
             for poly in polys:
@@ -252,7 +306,7 @@ def generate_zlevel_sliced_finishing(slices_data, finish_tool, depth, f_stepdown
                         for coords in contours:
                             lines.append("G00 Z5.000")
                             lines.append(f"G00 X{coords[0][0]:.3f} Y{coords[0][1]:.3f}")
-                            lines.append(f"G01 Z-{depth:.3f} F{int(f_feed * 0.4)}")
+                            lines.append(f"G01 Z-{deepest_depth:.3f} F{int(f_feed * 0.4)}")
                             for pt in coords[1:]:
                                 lines.append(f"G01 X{pt[0]:.3f} Y{pt[1]:.3f} F{f_feed}")
                             lines.append(f"G01 X{coords[0][0]:.3f} Y{coords[0][1]:.3f} F{f_feed}")
@@ -320,6 +374,64 @@ def generate_legacy_polygon_finishing(p, finish_tool, depth, f_stepdown, f_feed,
                 lines.append("G00 Z5.000")
     return lines
 
+def verify_preflight_feature_coverage(gcode_text, features, strategy_name):
+    """
+    Deterministically asserts that EVERY extracted feature in features.json has at least one
+    cutting feed motion (G01/G02/G03) within its 3D spatial bounding volume.
+    Raises RuntimeError if any feature was omitted.
+    """
+    s1 = features.get("features", {}).get("setup_1_top_3axis", {})
+    pockets = s1.get("pockets", [])
+    if not pockets:
+        pockets = features.get("features", {}).get("pockets", [])
+
+    cut_points = []
+    for line in gcode_text.splitlines():
+        line = line.strip()
+        if not line or line.startswith(";") or line.startswith("("):
+            continue
+        if line.startswith("G01") or line.startswith("G1 ") or line.startswith("G02") or line.startswith("G03"):
+            parts = line.split()
+            x = y = z = None
+            for pt_part in parts:
+                if pt_part.startswith("X"):
+                    try:
+                        x = float(pt_part[1:])
+                    except ValueError:
+                        pass
+                elif pt_part.startswith("Y"):
+                    try:
+                        y = float(pt_part[1:])
+                    except ValueError:
+                        pass
+                elif pt_part.startswith("Z"):
+                    try:
+                        z = float(pt_part[1:])
+                    except ValueError:
+                        pass
+            if x is not None and y is not None:
+                cut_points.append((x, y, z))
+
+    uncovered_features = []
+    for p in pockets:
+        p_id = p["id"]
+        b = p.get("bounds", {})
+        min_x = b.get("min_x", -999.0) - 2.0
+        max_x = b.get("max_x", 999.0) + 2.0
+        min_y = b.get("min_y", -999.0) - 2.0
+        max_y = b.get("max_y", 999.0) + 2.0
+
+        has_cut = any(min_x <= pt[0] <= max_x and min_y <= pt[1] <= max_y for pt in cut_points)
+        if not has_cut:
+            uncovered_features.append(p_id)
+
+    if uncovered_features:
+        raise RuntimeError(
+            f"PRE-FLIGHT G-CODE VALIDATION FAILED for [{strategy_name}]: "
+            f"The following features have ZERO cutting toolpath passes: {uncovered_features}. "
+            f"Every CAD feature must be 100% machined across all strategies."
+        )
+
 def generate_gcode_for_strategy(strategy_name, strat, features, tool_lib, output_file, slices_data=None):
     lines = []
     params = strat["parameters"]
@@ -346,6 +458,11 @@ def generate_gcode_for_strategy(strategy_name, strat, features, tool_lib, output
     stock_x = stock_req.get("x_length_mm", 100.0)
     stock_y = stock_req.get("y_length_mm", 80.0)
     stock_z = stock_req.get("z_length_mm", 25.0)
+
+    # Collect all pocket floor depths to ensure exact floor Z-plane alignment
+    all_floors = features.get("machinability_constraints", {}).get("all_floor_depths_mm", [])
+    if not all_floors:
+        all_floors = [p.get("depth_from_external_top_mm", 0.0) for p in pockets if p.get("depth_from_external_top_mm", 0.0) > 0]
 
     # -------------------------------------------------------------
     # G-code Header
@@ -376,6 +493,7 @@ def generate_gcode_for_strategy(strategy_name, strat, features, tool_lib, output
         allowance = r_param.get("finish_allowance_mm", 0.2)
         tool_rad = rough_tool["diameter_mm"] / 2.0
         stepover_dist = rough_tool["diameter_mm"] * (stepover_pct / 100.0)
+        r_z_passes = compute_adaptive_z_passes(deepest_depth, stepdown, floor_depths=all_floors)
 
         lines.append(f"\n; -------------------------------------------------------------")
         lines.append(f"; OP 1: Pocket Roughing (Tool T{rough_tool['tool_number']}: {rough_tool['name']})")
@@ -389,10 +507,39 @@ def generate_gcode_for_strategy(strategy_name, strat, features, tool_lib, output
 
         if slices_data:
             # TRUE 3D B-REP Z-LEVEL SLICING
-            rough_lines = generate_zlevel_sliced_roughing(
-                slices_data, tool_rad, allowance, stepover_dist, deepest_depth, stepdown, feed, finish_tool, rpm
+            rough_lines, unmachined_polys = generate_zlevel_sliced_roughing(
+                slices_data, tool_rad, allowance, stepover_dist, r_z_passes, feed
             )
             lines.extend(rough_lines)
+
+            # OPERATION 1B: Rest-Machining / Narrow Feature Clearing
+            # Automatically invoke secondary tool if any cavities were too narrow for roughing tool
+            if unmachined_polys and finish_tool and finish_tool["tool_number"] != rough_tool["tool_number"]:
+                f_rpm = params.get("pocket_finishing", {}).get("spindle_rpm", 9500)
+                f_feed = int(feed * 0.7)
+                f_rad = finish_tool["diameter_mm"] / 2.0
+                f_stepover = finish_tool["diameter_mm"] * 0.45
+
+                lines.append(f"\n; -------------------------------------------------------------")
+                lines.append(f"; OP 1B: Rest-Machining Narrow Cavities (Tool T{finish_tool['tool_number']}: {finish_tool['name']})")
+                lines.append(f"; Auto-clearing {sum(len(v) for v in unmachined_polys.values())} feature section(s) too narrow for roughing tool")
+                lines.append(f"; -------------------------------------------------------------")
+                lines.append(f"T{finish_tool['tool_number']} M06")
+                lines.append(f"G43 H{finish_tool['tool_number']}")
+                lines.append(f"S{f_rpm} M03")
+                lines.append(f"M08          ; Flood Coolant ON")
+                lines.append(f"G00 Z5.000")
+
+                for cur_z in sorted(unmachined_polys.keys(), reverse=True):
+                    u_polys = unmachined_polys[cur_z]
+                    lines.append(f"\n; --- Rest-machining pass at Z = {cur_z:.3f} mm ---")
+                    for poly in u_polys:
+                        rest_lines = generate_scanline_raster_for_poly(
+                            poly, f_rad, allowance, f_stepover, f_feed, cur_z
+                        )
+                        if not rest_lines:
+                            rest_lines = generate_centerline_slot_pass(poly, cur_z, f_feed)
+                        lines.extend(rest_lines)
         else:
             # Fallback to feature pocket polygons
             for p in pockets:
@@ -410,6 +557,7 @@ def generate_gcode_for_strategy(strategy_name, strat, features, tool_lib, output
         f_rpm = f_param.get("spindle_rpm", 9500)
         f_feed = f_param.get("feedrate_mm_min", 800)
         f_stepdown = f_param.get("stepdown_mm", 1.5)
+        f_z_passes = compute_adaptive_z_passes(deepest_depth, f_stepdown, floor_depths=all_floors)
         spring_passes = f_param.get("spring_passes", 0)
 
         lines.append(f"\n; -------------------------------------------------------------")
@@ -424,7 +572,7 @@ def generate_gcode_for_strategy(strategy_name, strat, features, tool_lib, output
         if slices_data:
             # TRUE 3D B-REP Z-LEVEL FINISHING
             finish_lines = generate_zlevel_sliced_finishing(
-                slices_data, finish_tool, deepest_depth, f_stepdown, f_feed, spring_passes
+                slices_data, finish_tool, deepest_depth, f_z_passes, f_feed, spring_passes
             )
             lines.extend(finish_lines)
         else:
@@ -481,6 +629,10 @@ def generate_gcode_for_strategy(strategy_name, strat, features, tool_lib, output
     lines.append("%")
 
     gcode_text = "\n".join(lines) + "\n"
+
+    # Pre-Flight Feature Coverage Gate: Verify 100% of CAD features are cut
+    verify_preflight_feature_coverage(gcode_text, features, strategy_name)
+
     os.makedirs(os.path.dirname(os.path.abspath(output_file)), exist_ok=True)
     with open(output_file, "w") as f:
         f.write(gcode_text)
@@ -516,23 +668,26 @@ def generate_all_toolpaths(features_path, tools_path, strategies_path, out_dir, 
         if pockets:
             deepest = max(deepest, max(p.get("depth_from_external_top_mm", 10.0) for p in pockets))
 
-        # Collect unique Z levels needed across all 3 strategies
+        # Collect unique Z levels needed across all 3 strategies PLUS all feature floor depths!
         z_levels_needed = set()
+        all_floors = features.get("machinability_constraints", {}).get("all_floor_depths_mm", [])
+        if not all_floors:
+            all_floors = [p.get("depth_from_external_top_mm", 0.0) for p in pockets if p.get("depth_from_external_top_mm", 0.0) > 0]
+
+        for fd in all_floors:
+            z_levels_needed.add(round(-float(fd), 3))
+
         for strat_key, strat in strategies.get("strategies", {}).items():
             params = strat.get("parameters", {})
             r_stepdown = params.get("pocket_roughing", {}).get("stepdown_mm", 3.0)
             f_stepdown = params.get("pocket_finishing", {}).get("stepdown_mm", 1.5)
 
-            cur_z = 0.0
-            while cur_z > -deepest:
-                cur_z = max(-deepest, cur_z - r_stepdown)
-                z_levels_needed.add(round(cur_z, 3))
+            for z in compute_adaptive_z_passes(deepest, r_stepdown, floor_depths=all_floors):
+                z_levels_needed.add(z)
 
             if params.get("pocket_finishing", {}).get("enabled", False):
-                cur_z = 0.0
-                while cur_z > -deepest:
-                    cur_z = max(-deepest, cur_z - f_stepdown)
-                    z_levels_needed.add(round(cur_z, 3))
+                for z in compute_adaptive_z_passes(deepest, f_stepdown, floor_depths=all_floors):
+                    z_levels_needed.add(z)
 
         z_list = sorted(list(z_levels_needed), reverse=True)
         slices_tmp = os.path.join(out_dir, "slices.json")

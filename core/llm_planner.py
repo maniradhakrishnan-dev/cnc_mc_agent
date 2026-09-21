@@ -56,7 +56,12 @@ Your job is to read CAD geometric features and a tool library, and generate thre
    - High-speed roughing pass (45-50% stepover) + single finishing contour pass.
    - Standard recommended feeds and speeds.
 
-IMPORTANT CONSTRAINTS:
+IMPORTANT CONSTRAINTS & MANDATORY RULES:
+- 100% of all extracted features MUST be completely machined across ALL THREE strategies. Never omit a feature.
+- Different strategies trade off feeds, speeds, stepovers, and finish passes, but all CAD geometry must be cut.
+- If any pocket or slot width <= roughing tool diameter (e.g. min_cavity_width_mm <= tool diameter), you MUST either:
+  (a) Choose a primary tool that fits the cavity (diameter < min_cavity_width_mm), OR
+  (b) Enable secondary pocket_finishing / rest-machining with a smaller tool that fits (diameter < min_cavity_width_mm) across ALL strategies, including CYCLE_TIME.
 - Do not exceed tool flute length or shank reach.
 - Pocket internal corners must be finished by a tool with diameter <= max_tool_diameter_mm.
 - Output MUST be valid JSON only, conforming exactly to the requested schema.
@@ -76,6 +81,17 @@ def build_deterministic_fallback(features, tools, feedback=None):
             features.get("features", {}).get("primary_setup_top_3axis", {}).get("holes") or \
             features.get("features", {}).get("holes", [])
 
+    min_cavity = features.get("machinability_constraints", {}).get("min_cavity_width_mm")
+    if min_cavity is None:
+        widths = []
+        for p in pockets:
+            if p.get("is_slot") and p.get("slot_info"):
+                widths.append(p["slot_info"].get("slot_width_mm", 10.0))
+            else:
+                b = p.get("bounds", {})
+                widths.append(min(b.get("width_x_mm", 100.0), b.get("length_y_mm", 100.0)))
+        min_cavity = min(widths) if widths else 50.0
+
     # Pick best tools from library
     deepest = features.get("machinability_constraints", {}).get("deepest_feature_depth_mm", 0.0)
     if deepest > 30.0:
@@ -83,8 +99,13 @@ def build_deterministic_fallback(features, tools, feedback=None):
         endmill_finish = next((t for t in tools["tools"] if t["tool_number"] == 12), tools["tools"][0])
     else:
         endmill_rough = next((t for t in tools["tools"] if t["tool_number"] == 1), tools["tools"][0])
-        endmill_finish = next((t for t in tools["tools"] if t["tool_number"] == 2), tools["tools"][0])
+        if min_cavity < 6.0:
+            endmill_finish = next((t for t in tools["tools"] if t["tool_number"] == 3), tools["tools"][1])
+        else:
+            endmill_finish = next((t for t in tools["tools"] if t["tool_number"] == 2), tools["tools"][1])
     drill_tool = next((t for t in tools["tools"] if t["type"] == "drill"), tools["tools"][0])
+
+    cycle_time_needs_secondary = (min_cavity <= endmill_rough["diameter_mm"])
 
     base_plan = {
         "part_file": features.get("source_cad_file", "unknown"),
@@ -92,11 +113,11 @@ def build_deterministic_fallback(features, tools, feedback=None):
         "strategies": {
             "CYCLE_TIME": {
                 "name": "Cycle Time Optimized",
-                "description": "Aggressive roughing with 75% stepover and max feed for lowest run-time.",
+                "description": "High-MRR roughing with minimal run-time while strictly machining 100% of all features.",
                 "target_tradeoff": "Fastest cycle time, coarser surface scallops (~35-50 microns)",
                 "tool_assignments": {
                     "pocket_roughing": endmill_rough["tool_number"],
-                    "pocket_finishing": endmill_rough["tool_number"],
+                    "pocket_finishing": endmill_finish["tool_number"] if cycle_time_needs_secondary else endmill_rough["tool_number"],
                     "drilling": drill_tool["tool_number"]
                 },
                 "parameters": {
@@ -106,10 +127,14 @@ def build_deterministic_fallback(features, tools, feedback=None):
                         "stepover_pct": 75,
                         "stepdown_mm": 4.0,
                         "ramp_plunge_angle_deg": 3.0,
-                        "finish_allowance_mm": 0.0
+                        "finish_allowance_mm": 0.1 if cycle_time_needs_secondary else 0.0
                     },
                     "pocket_finishing": {
-                        "enabled": False,
+                        "enabled": cycle_time_needs_secondary,
+                        "spindle_rpm": 10000,
+                        "feedrate_mm_min": 1200,
+                        "stepover_pct": 50,
+                        "stepdown_mm": 3.0,
                         "spring_passes": 0
                     },
                     "drilling": {
@@ -217,6 +242,13 @@ def build_deterministic_fallback(features, tools, feedback=None):
                 p = base_plan["strategies"][strat_key]["parameters"]
                 ta = base_plan["strategies"][strat_key]["tool_assignments"]
                 
+                violations = [v.get("type", "") for v in strat_critique.get("violations", [])]
+                if "UNCUT_MATERIAL" in violations or "PART_GOUGE" in violations or not strat_critique.get("safety_pass", True):
+                    p["pocket_finishing"]["enabled"] = True
+                    ta["pocket_finishing"] = endmill_finish["tool_number"]
+                    if "finish_allowance_mm" in p["pocket_roughing"]:
+                        p["pocket_roughing"]["finish_allowance_mm"] = 0.15
+
                 if "finish_stepover_pct" in adj and "pocket_finishing" in p:
                     p["pocket_finishing"]["stepover_pct"] = max(5.0, adj["finish_stepover_pct"])
                     if not p["pocket_finishing"].get("enabled"):
@@ -388,6 +420,36 @@ def normalize_strategies(data, features, tools, feedback=None):
             "parameters": raw.get("parameters", fb_strat["parameters"]),
             "predictions": predictions
         }
+
+    # Deterministic 100% Feature Conservation Safety Gate:
+    # If the primary roughing tool cannot physically clear the narrowest cavity,
+    # secondary finishing / rest-machining with a smaller tool MUST be active across all strategies!
+    min_cavity = features.get("machinability_constraints", {}).get("min_cavity_width_mm")
+    if min_cavity is None:
+        pockets = features.get("features", {}).get("setup_1_top_3axis", {}).get("pockets", [])
+        widths = []
+        for p in pockets:
+            if p.get("is_slot") and p.get("slot_info"):
+                widths.append(p["slot_info"].get("slot_width_mm", 10.0))
+            else:
+                b = p.get("bounds", {})
+                widths.append(min(b.get("width_x_mm", 100.0), b.get("length_y_mm", 100.0)))
+        min_cavity = min(widths) if widths else 50.0
+
+    for key in ["CYCLE_TIME", "ACCURACY_TUNED", "BALANCED"]:
+        strat = norm["strategies"][key]
+        r_tool_num = strat["tool_assignments"].get("pocket_roughing", 1)
+        r_tool = next((t for t in tools["tools"] if t["tool_number"] == r_tool_num), tools["tools"][0])
+
+        if min_cavity <= r_tool["diameter_mm"]:
+            f_tool_num = strat["tool_assignments"].get("pocket_finishing", 2)
+            f_tool = next((t for t in tools["tools"] if t["tool_number"] == f_tool_num), None)
+            if not f_tool or f_tool["diameter_mm"] >= min_cavity:
+                smaller_tool = next((t for t in tools["tools"] if t["type"] == "flat_endmill" and t["diameter_mm"] < min_cavity), None)
+                if smaller_tool:
+                    strat["tool_assignments"]["pocket_finishing"] = smaller_tool["tool_number"]
+            strat["parameters"]["pocket_finishing"]["enabled"] = True
+
     return norm
 
 def call_gemini_api(api_key, features, tools, model="gemini-3.1-flash-lite", feedback=None):

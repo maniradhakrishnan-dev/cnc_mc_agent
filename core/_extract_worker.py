@@ -218,6 +218,18 @@ def extract_features_exact(step_file):
                     p_center = circ_center if is_pure_circle else [round(fb.Center.x, 4), round(fb.Center.y, 4)]
                     p_r = circ_radius if is_pure_circle else (slot_info["slot_radius_mm"] if is_slot else min_internal_r)
 
+                    min_span = min(w_x, l_y) if w_x > 0 and l_y > 0 else (slot_info.get("slot_width_mm", 10.0) if is_slot and slot_info else 10.0)
+                    if is_slot and slot_info:
+                        min_span = min(min_span, slot_info.get("slot_width_mm", min_span))
+                    
+                    if is_slot and slot_info:
+                        safe_tool_d = round(slot_info.get("slot_width_mm", min_span) - 0.2, 2)
+                    elif is_pure_circle and circ_radius:
+                        safe_tool_d = round(circ_radius * 2.0 - 0.2, 2)
+                    else:
+                        c_limit = round(p_r * 2.0 - 0.2, 2) if p_r else min_span - 0.2
+                        safe_tool_d = round(min(min_span - 0.2, c_limit), 2)
+
                     pockets.append({
                         "id": f"pocket_{len(pockets)+1}",
                         "type": p_type,
@@ -248,7 +260,8 @@ def extract_features_exact(step_file):
                         "top_rim_chamfer": pocket_chamfer if pocket_chamfer else {"has_chamfer": False},
                         "center_mm": p_center,
                         "min_corner_radius_mm": p_r,
-                        "max_tool_diameter_mm": round(p_r * 2.0, 4) if p_r else None,
+                        "max_tool_diameter_mm": safe_tool_d,
+                        "min_cavity_width_mm": round(min_span, 2),
                         "volume_mm3": pocket_volume
                     })
 
@@ -525,6 +538,9 @@ def extract_features_exact(step_file):
     }
 
     all_depths = [p["depth_from_external_top_mm"] for p in pockets] + [h["depth_from_external_top_mm"] for h in vertical_holes]
+    cavity_widths = [p.get("min_cavity_width_mm") for p in pockets if p.get("min_cavity_width_mm")]
+    min_cavity_w = min(cavity_widths) if cavity_widths else None
+    all_floor_depths = sorted(list(set(round(p.get("depth_from_external_top_mm", 0.0), 3) for p in pockets if p.get("depth_from_external_top_mm", 0.0) > 0)))
 
     features = {
         "source_cad_file": os.path.basename(step_file),
@@ -562,6 +578,8 @@ def extract_features_exact(step_file):
             "requires_undercut_tooling": bool(len(undercuts) > 0),
             "vertical_corner_radius_mm": min_internal_r,
             "max_tool_diam_for_corners_mm": round(min_internal_r * 2.0, 4) if min_internal_r else None,
+            "min_cavity_width_mm": min_cavity_w,
+            "all_floor_depths_mm": all_floor_depths,
             "total_chamfers_detected": len(all_chamfer_faces),
             "deepest_feature_depth_mm": max(all_depths, default=0.0)
         }

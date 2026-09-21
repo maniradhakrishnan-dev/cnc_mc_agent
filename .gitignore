@@ -17,7 +17,8 @@ runs/
 # Environment & local keys
 .env
 
-# Editor & OS artifacts
+# Scratch test directories
+scratch/
 .DS_Store
 .vscode/
 .idea/
