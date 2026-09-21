@@ -1,78 +1,94 @@
-# CNC-MC-Agent: Autonomous Closed-Loop CNC Machine Code (G-Code) Generation & Verification Agent
+# CNC-MC-Agent: Autonomous Closed-Loop CNC Machine Code (G-Code) Generation, Simulation & Verification
 
-An autonomous closed-loop CNC Machine Code (G-code) agent that accepts arbitrary 3D CAD models (STEP) or 2D mechanical drawings (DXF), extracts topological features, plans multi-objective machining strategies on the Pareto Frontier, generates machine-ready G-code, simulates cut workpieces via CAMotics, physically verifies tolerances against the nominal CAD B-Rep using OpenCASCADE, and **iteratively self-corrects using diagnostic feedback until tolerances and safety converge**.
+> **"A drawing goes in. Several complete, machine-ready programs come out, on a measured accuracy-versus-time frontier."** — *REQ.md*
+
+**CNC-MC-Agent** is an autonomous CAM agent that **Generates**, **Simulates**, and **Physically Verifies** CNC Machine Code (G-code) directly from 3D CAD models (STEP) and 2D drawings (DXF). 
+
+Instead of generating G-code blindly, the agent operates in a **closed-loop feedback cycle**: it plans multi-objective strategies across the Pareto Frontier, executes voxel cutting physics, audits the simulated result against the nominal engineering model, and **autonomously self-corrects the machine code until safety and tolerances converge**.
+
+---
+
+## The Three Core Pillars of CNC-MC-Agent
+
+```
+   ┌─────────────────────────────────────────────────────────────────────────────────────────┐
+   │                                                                                         │
+   │   1. GENERATE                      2. SIMULATE                    3. VERIFY             │
+   │   Machine Code (G-Code)            Machine Code Execution         Physical & Metrology  │
+   │                                                                                         │
+   │   • STEP / DXF Feature Extraction  • Headless Voxel Cutting       • Zero Rapid Crash    │
+   │   • Pareto Multi-Objective Plan      (CAMotics camsim)              (G00 into Stock)    │
+   │     - CYCLE_TIME (High MRR)        • Line-by-line G-code          • Bed Strike Check    │
+   │     - ACCURACY_TUNED (Fine finish)   kinematic run-time             (Machine table)     │
+   │     - BALANCED (Tool life/finish)  • True machine cycle time      • Flute Stepdown      │
+   │   • Z-Level B-Rep Slicing          • Cut workpiece mesh export      vs Shank Rubbing    │
+   │   • Clean Helical Ramp Entries       (.stl output)                • Sub-micron CAD      │
+   │   • Machine-Ready G-code (.ngc)                                     surface metrology   │
+   │                                                                   • Zero-gouge proof    │
+   │                                                                                         │
+   └────────────────────────────────────────────┬────────────────────────────────────────────┘
+                                                │
+                                 Closed-Loop Feedback Loop
+                         (Diagnoses errors ──► Re-plans G-code)
+```
 
 ---
 
 ## Closed-Loop Agent Architecture
 
 ```
-        Raw CAD Model (STEP / DXF)
-                   │
-                   ▼
-       [1] Feature Extraction & Audit
-                   │
-    ┌──────────────┴──────────────────────────┐
-    │                                         │
-    │  Iterative Feedback Loop                │
-    │  (up to N max iterations)               │
-    │                                         │
-    │  [2] LLM Strategy Planner (Gemini)      │ ◄─── Feedback Critique
-    │             │                                  (scallops, cusps,
-    │             ▼                                  chiploads, collisions)
-    │  [3] Z-Level B-Rep Slicing G-Code       │           ▲
-    │             │                                       │
-    │             ▼                                       │
-    │  [4] CAMotics Voxel Simulation          │           │
-    │             │                                       │
-    │             ▼                                       │
-    │  [5] OpenCASCADE Surface Metrology      │           │
-    │             │                                       │
-    │             ▼                                       │
-    │  [5b] Diagnostic Critique Evaluator ────┴───────────┘
-    │             │ (Converged: 0 collisions, tolerances met)
-    │             ▼
-    └──────► [6] Interactive Pareto Report & Convergence History
+         Raw CAD Model (STEP / DXF) + Tool Library
+                             │
+                             ▼
+              [1] Feature Extraction & Audit
+              (OpenCASCADE B-Rep / ezdxf 2D)
+                             │
+     ┌───────────────────────┴─────────────────────────┐
+     │                                                 │
+     │  Iterative Self-Correction Loop                 │
+     │  (up to N max iterations)                       │
+     │                                                 │
+     │  [2] GENERATE: Strategy Planner (Gemini)        │ ◄─── Diagnostic Critique
+     │         │                                                (exact math: stepovers,
+     │         ▼                                                feeds, flute reach)
+     │  [3] GENERATE: Z-Level Slicing Toolpaths        │                 ▲
+     │         │                                                         │
+     │         ▼                                                         │
+     │  [4] SIMULATE: CAMotics Voxel Physics           │                 │
+     │         │ (camsim G-code cutting simulation)                      │
+     │         ▼                                                         │
+     │  [5] VERIFY: OpenCASCADE Surface Metrology      │                 │
+     │         │ (Nominal CAD vs. Cut Workpiece Mesh)                    │
+     │         ▼                                                         │
+     │  [5b] VERIFY: Diagnostic Critique Evaluator ────┴─────────────────┘
+     │         │ (Passed: 0 collisions, 0 gouges, tolerances met)
+     │         ▼
+     └─► [6] Standalone Interactive Pareto Report & Convergence Timeline
 ```
 
 ---
 
-## Key Features
+## 1. Machine Code Generation
+- **Automated Feature Extraction**: Parses STEP solid topology (cylinders, pockets, planar floors, outer bounds) and 2D DXF vector layers.
+- **Pareto Multi-Objective Planning**: Produces three distinct G-code programs on the accuracy-vs-time frontier:
+  - `CYCLE_TIME`: Maximal radial/axial engagement, high MRR, aggressive feeds.
+  - `ACCURACY_TUNED`: Fine stepovers ($< 20\%$), conservative stepdowns, dedicated finishing passes.
+  - `BALANCED`: Industrial compromise balancing tool life, cycle time, and surface finish.
+- **Cross-Section Toolpath Slicing**: Boolean subtraction (`Stock - CAD Solid`) sliced into 2D planar contours, offset using Shapely, with clean helical plunges and retract clearances.
+- **Machine Dialect**: Outputs clean, standardized LinuxCNC / GRBL G-code (`.ngc`).
 
-1. **Closed-Loop Feedback & Convergence**:
-   - Compares physical simulation and metrology against strict criteria: zero rapid collisions, zero gouges, safe chiploads, and target surface finish.
-   - Diagnoses root causes and calculates mathematical adjustments (e.g. required stepover for floor scallop $s = 2\sqrt{2Rh - h^2}$, chipload-safe feedrates, corner tool reach).
-   - Re-prompts Gemini (with deterministic programmatic fallback) to revise CAM strategies across iterations (`iter_1/`, `iter_2/`) until convergence.
+## 2. Machine Code Simulation
+- **Voxel Cutting Physics**: Spawns CAMotics (`camsim`) headlessly to simulate spinning cylindrical and ball cutters carving material out of the raw stock block line-by-line.
+- **Kinematic Machining Time**: Calculates realistic machine execution time factoring in feed rates, rapid traverses, tool change penalties, and dwells.
+- **Workpiece Mesh Generation**: Exports the final cut workpiece as a 3D surface mesh (`.stl`) for geometric inspection.
 
-2. **Deterministic B-Rep & Drawing Analysis**:
-   - Automated pocket, profile, and hole extraction directly from STEP B-Rep topology using FreeCAD/OpenCASCADE.
-   - Normal vector auditing to eliminate inverted holes and false detections.
-   - Automatic bounding box computation for optimal stock sizing.
-
-3. **Multi-Objective Strategy Planning**:
-   - Formulates three distinct strategies across the Pareto Frontier:
-     - `CYCLE_TIME`: Aggressive roughing, maximal tool engagement, high MRR.
-     - `ACCURACY_TUNED`: Fine stepovers, conservative stepdowns, dedicated finishing passes.
-     - `BALANCED`: Industrial trade-off balancing tool life, cycle time, and surface finish.
-
-4. **General Z-Level B-Rep Toolpath Slicer**:
-   - Cross-section slicing across arbitrary geometry: handles complex stepped pockets, bosses, islands, and open contours.
-   - Multi-contour 2D polygon offsetting via Shapely.
-   - Clean helical/ramp entries and retract clearances.
-
-5. **Physical Simulation (CAMotics)**:
-   - Headless voxel cutting simulation via `camsim`.
-   - Rapid-traverse (G00) collision detection below stock surface.
-   - Kinematic cycle time calculation factoring in acceleration, tool changes, and dwells.
-   - Export of simulated cut workpiece meshes (.stl).
-
-6. **OpenCASCADE Metrological Audit**:
-   - Euclidean distance point-projection against nominal CAD B-Rep surfaces.
-   - Calculation of mean and max surface deviation (µm), corner cusp residual, and volumetric removal.
-   - Zero-gouge safety assertion.
-
-7. **Interactive Visual Reporting**:
-   - Standalone dark-mode HTML executive report with Pareto trade-off charts, closed-loop convergence timeline, and toolpath statistics.
+## 3. Physical & Metrological Verification
+- **Rapid Traverse Crash Detection**: Traps any `G00` motion plunging or moving laterally below stock level ($Z \le 0$).
+- **Machine Bed & Workbench Collision**: Asserts that tools never cut past the stock bottom into the machine bed, vise, or fixture.
+- **Axis Overtravel**: Checks all commanded $X, Y, Z$ positions against physical machine travel limits.
+- **Shank Friction / Flute Length**: Asserts that axial stepdowns never exceed cutting flute lengths ($\Delta Z \le L_{\text{flute}}$).
+- **Surface Metrology in Microns**: OpenCASCADE projects simulated cut mesh vertices against the original CAD NURBS surfaces, computing mean/max deviation in $\mu\text{m}$ and asserting **zero gouging**.
+- **The Refusal Case (REQ.md Line 41)**: If an internal pocket corner radius is smaller than the smallest tool in the library ($R_{\min} < R_{\text{tool}}$), the agent safely halts and outputs a formal `refusal_notice.json` naming the required tool diameter rather than generating gouging machine code.
 
 ---
 
@@ -80,7 +96,7 @@ An autonomous closed-loop CNC Machine Code (G-code) agent that accepts arbitrary
 
 ```
 cnc-mc-agent/
-├── pyproject.toml              # Package configuration & console entrypoint
+├── pyproject.toml              # Package configuration & console entrypoints
 ├── README.md                   # Documentation
 ├── run_pipeline.py             # Master closed-loop orchestrator CLI
 ├── tool_library.json           # Standard CNC tooling catalog
@@ -95,7 +111,7 @@ cnc-mc-agent/
 │   ├── test_mutation_corpus.py
 │   ├── test_prediction_gap.py
 │   └── test_dxf_pipeline.py
-├── step/                       # Test CAD models
+├── step/                       # Benchmark CAD models (plates, pockets, islands)
 ├── core/                       # Core Agent Engine & Verification Stages
 │   ├── __init__.py             # Package exports
 │   ├── feature_extractor.py    # Stage 1: STEP / DXF feature extraction
@@ -113,20 +129,14 @@ cnc-mc-agent/
         ├── iter_1/             # Iteration 1 simulation, G-code, critique
         ├── iter_2/             # Iteration 2 revised simulation & metrology
         ├── iteration_history.json # Convergence progression log
-        ├── source_cad.step
-        ├── tool_library.json
-        ├── features.json
-        ├── strategies.json
-        ├── 1_cycle_time.ngc
-        ├── 2_accuracy_tuned.ngc
-        ├── 3_balanced.ngc
-        ├── 1_cycle_time.camotics
-        ├── 1_cycle_time_cut.stl
+        ├── 1_cycle_time.ngc    # G-code (Cycle Time)
+        ├── 2_accuracy_tuned.ngc# G-code (Accuracy Tuned)
+        ├── 3_balanced.ngc      # G-code (Balanced)
+        ├── 1_cycle_time.camotics # 3D visual simulation
         ├── simulation_results.json
         ├── deviations.json
         ├── critique.json
-        ├── frontier_report.html
-        └── run_metadata.json
+        └── frontier_report.html
 ```
 
 ---
@@ -140,12 +150,12 @@ cnc-mc-agent/
 2. **FreeCAD 1.0+** CLI (`freecadcmd`):
    ```bash
    sudo apt-get install freecad
-   # Verifies FreeCAD B-Rep geometry kernel is available in PATH
+   # Provides the OpenCASCADE B-Rep CAD geometry kernel
    ```
 3. **CAMotics** CLI (`camsim`):
    ```bash
    sudo apt-get install camotics
-   # Verifies voxel cutting simulation engine is available in PATH
+   # Provides the voxel cutting simulation engine
    ```
 4. **Gemini API Key** *(Optional: deterministic physics planner activates automatically if omitted)*:
    ```bash
@@ -157,14 +167,14 @@ cnc-mc-agent/
 
 ## Installation & Setup
 
-Setup is completely automated with `uv`:
+Setup is completely automated via `uv`:
 
 ```bash
 # 1. Clone the repository
 git clone https://github.com/maniradhakrishnan-dev/cnc-mc-agent.git
 cd cnc-mc-agent
 
-# 2. (Optional) Create environment file for LLM planner
+# 2. (Optional) Configure environment file for LLM planner
 cp .env.example .env
 
 # 3. Synchronize virtual environment & all dependencies
@@ -175,7 +185,7 @@ uv sync
 
 ## Pre-Flight System Doctor
 
-Run the built-in system doctor to verify your Python environment, CAD/CAM binaries, and computational geometry libraries in 1 second:
+Verify your Python environment, CAD/CAM binaries, and computational geometry libraries in 1 second:
 
 ```bash
 uv run cnc-mc-agent --doctor
@@ -211,26 +221,26 @@ uv run python3 -m unittest discover tests
 ```
 
 Tests included:
-- **The Refusal Case** (`tests/test_refusal_case.py`): Ensures parts with internal corner radii smaller than minimum tool diameter are rejected with a formal `RefusalNotice` rather than producing gouging toolpaths.
+- **The Refusal Case** (`tests/test_refusal_case.py`): Rejects unmachinable internal corners with formal `RefusalNotice`.
 - **Prediction vs. Result Gap Analysis** (`tests/test_prediction_gap.py`): Validates cycle time, scallop height, mean deviation, and chipload gap calculations.
-- **Mutation Corpus** (`tests/test_mutation_corpus.py`): Verifies physical/kinematic checker catches all 4 planted defects (rapid crash into stock, tool longer than machine Z travel, stepdown deeper than flute length, skipped finishing face).
-- **2D DXF Pipeline** (`tests/test_dxf_pipeline.py`): Validates 2D vector drawing ingestion, feature extraction, and strategy planning.
+- **Mutation Corpus** (`tests/test_mutation_corpus.py`): Validates detection of planted rapid collisions, axis overtravel, bed strikes, over-flute stepdowns, and skipped finishing faces (6 mutations).
+- **2D DXF Pipeline** (`tests/test_dxf_pipeline.py`): Validates 2D vector drawing ingestion and G-code generation.
 
 ---
 
 ## Quickstart: Running the Agent
 
-### 1. Execute on 3D CAD Drawing (STEP)
+### 1. Generate & Verify Machine Code for 3D CAD Part (STEP)
 ```bash
 uv run cnc-mc-agent step/01_simple_holes_plate.step
 ```
 
-### 2. Execute on 2D Mechanical Drawing (DXF)
+### 2. Generate & Verify Machine Code for 2D Drawing (DXF)
 ```bash
 uv run cnc-mc-agent sample_part.dxf
 ```
 
-### 3. Customize Iteration Limits and Tolerances
+### 3. Customize Iteration Limits and Surface Finish Tolerances
 ```bash
 uv run cnc-mc-agent step/machining_block_03.step \
     --run-id block03_prod \
@@ -241,7 +251,7 @@ uv run cnc-mc-agent step/machining_block_03.step \
 
 ---
 
-## Inspecting Outputs
+## Inspecting Generated Outputs
 
 All run artifacts are saved under `runs/<run_id>/`:
 
@@ -253,7 +263,9 @@ All run artifacts are saved under `runs/<run_id>/`:
   ```bash
   camotics runs/<run_id>/1_cycle_time.camotics &
   ```
-- **Machine-Ready G-Code**:
-  `runs/<run_id>/1_cycle_time.ngc`, `2_accuracy_tuned.ngc`, `3_balanced.ngc`
+- **Machine-Ready G-Code Programs**:
+  - `runs/<run_id>/1_cycle_time.ngc` (High material removal rate)
+  - `runs/<run_id>/2_accuracy_tuned.ngc` (Fine surface finish)
+  - `runs/<run_id>/3_balanced.ngc` (Industrial balanced trade-off)
 - **Convergence History & Critique**:
   `runs/<run_id>/iteration_history.json`, `runs/<run_id>/critique.json`
