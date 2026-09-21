@@ -122,7 +122,7 @@ def analyze_gcode_safety_and_kinematics(gcode_path, tool_lib, stock_bounds, rapi
         if ym: ny = float(ym.group(1))
         if zm: nz = float(zm.group(1))
 
-        # Check machine axis envelope
+        # Check machine axis envelope (X, Y, Z overtravel limits)
         if nz < machine_limits.get("z_travel_min_mm", -100.0) or nz > machine_limits.get("z_travel_max_mm", 150.0):
             travel_violations.append({
                 "line": line_no,
@@ -130,6 +130,34 @@ def analyze_gcode_safety_and_kinematics(gcode_path, tool_lib, stock_bounds, rapi
                 "axis": "Z",
                 "target_val": nz,
                 "message": f"Z-axis target {nz}mm exceeds machine limits [{machine_limits.get('z_travel_min_mm')}, {machine_limits.get('z_travel_max_mm')}]."
+            })
+        if nx < machine_limits.get("x_travel_min_mm", -100.0) or nx > machine_limits.get("x_travel_max_mm", 500.0):
+            travel_violations.append({
+                "line": line_no,
+                "type": "AXIS_TRAVEL_LIMIT_EXCEEDED",
+                "axis": "X",
+                "target_val": nx,
+                "message": f"X-axis target {nx}mm exceeds machine limits [{machine_limits.get('x_travel_min_mm')}, {machine_limits.get('x_travel_max_mm')}]."
+            })
+        if ny < machine_limits.get("y_travel_min_mm", -100.0) or ny > machine_limits.get("y_travel_max_mm", 400.0):
+            travel_violations.append({
+                "line": line_no,
+                "type": "AXIS_TRAVEL_LIMIT_EXCEEDED",
+                "axis": "Y",
+                "target_val": ny,
+                "message": f"Y-axis target {ny}mm exceeds machine limits [{machine_limits.get('y_travel_min_mm')}, {machine_limits.get('y_travel_max_mm')}]."
+            })
+
+        # Check machine bed / workbench strike
+        stock_thickness = max_z - min_z
+        bed_strike_depth = -stock_thickness - 2.0
+        if nz < bed_strike_depth:
+            travel_violations.append({
+                "line": line_no,
+                "type": "WORKBENCH_COLLISION_HAZARD",
+                "axis": "Z",
+                "target_val": nz,
+                "message": f"Tool Z={nz}mm penetrates {abs(nz - (-stock_thickness)):.2f}mm past stock bottom into machine bed/vise."
             })
 
         dist = math.sqrt((nx - curr_x)**2 + (ny - curr_y)**2 + (nz - curr_z)**2)

@@ -171,6 +171,47 @@ class TestMutationCorpus(unittest.TestCase):
         violation_types = [v["type"] for v in strat_crit["violations"]]
         self.assertIn("SKIPPED_FACE", violation_types)
 
+    def test_mutation_5_workbench_bed_strike(self):
+        """Mutation 5: Tool plunging past stock bottom into machine bed/vise."""
+        gcode_path = os.path.join(self.temp_dir.name, "bed_strike.gcode")
+        with open(gcode_path, "w") as f:
+            f.write("""
+            G21 G90
+            T1 M06
+            S8000 M03
+            G00 X50.0 Y40.0 Z5.0
+            G01 Z-35.0 F500  ; Stock bottom is Z=-25.0! Plunging 10mm into machine bed/table!
+            G00 Z5.0
+            M30
+            """)
+
+        res = analyze_gcode_safety_and_kinematics(gcode_path, self.standard_tools, self.stock_bounds)
+        self.assertFalse(res["is_safe"], "Checker must catch workbench bed strike")
+        bed_violations = [v for v in res.get("travel_violations", []) if v["type"] == "WORKBENCH_COLLISION_HAZARD"]
+        self.assertGreater(len(bed_violations), 0, "Must flag WORKBENCH_COLLISION_HAZARD")
+
+    def test_mutation_6_axis_overtravel(self):
+        """Mutation 6: Tool commanded beyond machine table envelope (soft limit overtravel)."""
+        gcode_path = os.path.join(self.temp_dir.name, "axis_overtravel.gcode")
+        with open(gcode_path, "w") as f:
+            f.write("""
+            G21 G90
+            T1 M06
+            S8000 M03
+            G00 X750.0 Y40.0 Z5.0  ; X=750mm exceeds machine X limit of 500mm!
+            G01 Z-2.0 F500
+            G00 Z5.0
+            M30
+            """)
+
+        res = analyze_gcode_safety_and_kinematics(
+            gcode_path, self.standard_tools, self.stock_bounds,
+            machine_limits={"x_travel_max_mm": 500.0, "x_travel_min_mm": -100.0}
+        )
+        self.assertFalse(res["is_safe"], "Checker must catch axis overtravel")
+        axis_violations = [v for v in res.get("travel_violations", []) if v["type"] == "AXIS_TRAVEL_LIMIT_EXCEEDED"]
+        self.assertGreater(len(axis_violations), 0, "Must flag AXIS_TRAVEL_LIMIT_EXCEEDED")
+
 
 if __name__ == "__main__":
     unittest.main()
