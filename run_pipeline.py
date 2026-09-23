@@ -533,10 +533,24 @@ def main():
         scallop_val = f"{v.get('floor_scallop_height_um', 0.0):.1f} µm"
         print(f"{k:<18} | {v['cycle_time_formatted']:<12} | {scallop_val:<12} | ±{v['mean_surface_deviation_um']:>4.1f} µm  | {v['volumetric_fidelity_pct']:>5.1f}%     | {v['gouging_check']['status']}")
     print("=" * 105)
+    # Step 7: Packaging & Shop Floor Bundle
+    try:
+        from core.packager import package_production_bundle
+        zip_pkg = package_production_bundle(run_dir)
+        has_pkg = True
+    except Exception as e:
+        has_pkg = False
+        zip_pkg = None
+
+    print("=" * 105)
     print(f"\n📂 All artifacts for Run ID [{run_id}] saved to:")
     print(f"   👉 \033[1;36m{run_dir}\033[0m")
+    if has_pkg and zip_pkg:
+        print(f"   📦 \033[1;32mProduction Bundle (.zip):\033[0m {zip_pkg}")
     print(f"\n📄 Quick Commands for this run:")
     print(f"   • View Report   : xdg-open {report_html}")
+    if has_pkg:
+        print(f"   • Setup Sheet   : cat {os.path.join(run_dir, 'SETUP_SHEET.md')}")
     print(f"   • 3D Simulation : camotics {os.path.join(run_dir, '1_cycle_time.camotics')}")
     print(f"   • G-Code File   : {os.path.join(run_dir, '1_cycle_time.ngc')}")
     print("=" * 105)
