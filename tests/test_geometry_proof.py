@@ -20,8 +20,21 @@ class TestGeometryProofGateB(unittest.TestCase):
         shutil.rmtree(self.temp_dir)
 
     def test_gate_b_pass_existing_run(self):
-        cad_file = os.path.join(AGENT_DIR, "runs", "run_63c5ac82", "source_cad.step")
-        stl_dir = os.path.join(AGENT_DIR, "runs", "run_63c5ac82")
+        runs_dir = os.path.join(AGENT_DIR, "runs")
+        valid_run = None
+        if os.path.exists(runs_dir):
+            for r in sorted(os.listdir(runs_dir), reverse=True):
+                r_path = os.path.join(runs_dir, r)
+                cad_p = os.path.join(r_path, "source_cad.step")
+                if os.path.isdir(r_path) and os.path.exists(cad_p):
+                    if any(f.endswith(".stl") for f in os.listdir(r_path)):
+                        valid_run = r_path
+                        break
+        if not valid_run:
+            self.skipTest("No converged run with source_cad.step and STLs found to test Gate B")
+
+        cad_file = os.path.join(valid_run, "source_cad.step")
+        stl_dir = valid_run
         proof_json = os.path.join(self.temp_dir, "proof_b.json")
 
         cmd = ["freecadcmd", "--disable-addon", "RobustMCPBridge", GATE_B_WORKER, "--", cad_file, stl_dir, proof_json]

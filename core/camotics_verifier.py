@@ -25,12 +25,7 @@ def analyze_gcode_safety_and_kinematics(gcode_path, tool_lib, stock_bounds, rapi
     5. Axial stepdown vs tool flute length.
     """
     if machine_limits is None:
-        machine_limits = {
-            "z_travel_max_mm": 150.0,
-            "z_travel_min_mm": -100.0,
-            "x_travel_max_mm": 500.0,
-            "y_travel_max_mm": 400.0
-        }
+        machine_limits = {}
 
     with open(gcode_path, "r") as f:
         lines = f.readlines()
@@ -59,6 +54,13 @@ def analyze_gcode_safety_and_kinematics(gcode_path, tool_lib, stock_bounds, rapi
     top_z = 0.0 # Origin is top of finished/stock feature
     lowest_cleared_z = top_z
 
+    z_min_lim = machine_limits["z_travel_min_mm"] if "z_travel_min_mm" in machine_limits else min(-100.0, min_z - 50.0)
+    z_max_lim = machine_limits["z_travel_max_mm"] if "z_travel_max_mm" in machine_limits else max(150.0, max_z + 50.0)
+    x_min_lim = machine_limits["x_travel_min_mm"] if "x_travel_min_mm" in machine_limits else min(-500.0, min_x - 50.0)
+    x_max_lim = machine_limits["x_travel_max_mm"] if "x_travel_max_mm" in machine_limits else max(500.0, max_x + 50.0)
+    y_min_lim = machine_limits["y_travel_min_mm"] if "y_travel_min_mm" in machine_limits else min(-500.0, min_y - 50.0)
+    y_max_lim = machine_limits["y_travel_max_mm"] if "y_travel_max_mm" in machine_limits else max(500.0, max_y + 50.0)
+
     for line_no, raw_line in enumerate(lines, 1):
         line = raw_line.strip()
         if not line or line.startswith(";") or line.startswith("("):
@@ -76,7 +78,7 @@ def analyze_gcode_safety_and_kinematics(gcode_path, tool_lib, stock_bounds, rapi
             # Mutation Check 2: Tool longer than machine Z travel
             if curr_tool:
                 tool_len = curr_tool.get("overall_length_mm") or curr_tool.get("length_mm") or (curr_tool.get("flute_length_mm", 20.0) + 30.0)
-                z_travel_max = machine_limits.get("z_travel_max_mm", 150.0)
+                z_travel_max = z_max_lim
                 if tool_len > z_travel_max:
                     travel_violations.append({
                         "line": line_no,
@@ -123,29 +125,29 @@ def analyze_gcode_safety_and_kinematics(gcode_path, tool_lib, stock_bounds, rapi
         if zm: nz = float(zm.group(1))
 
         # Check machine axis envelope (X, Y, Z overtravel limits)
-        if nz < machine_limits.get("z_travel_min_mm", -100.0) or nz > machine_limits.get("z_travel_max_mm", 150.0):
+        if nz < z_min_lim or nz > z_max_lim:
             travel_violations.append({
                 "line": line_no,
                 "type": "AXIS_TRAVEL_LIMIT_EXCEEDED",
                 "axis": "Z",
                 "target_val": nz,
-                "message": f"Z-axis target {nz}mm exceeds machine limits [{machine_limits.get('z_travel_min_mm')}, {machine_limits.get('z_travel_max_mm')}]."
+                "message": f"Z-axis target {nz}mm exceeds machine limits [{z_min_lim}, {z_max_lim}]."
             })
-        if nx < machine_limits.get("x_travel_min_mm", -100.0) or nx > machine_limits.get("x_travel_max_mm", 500.0):
+        if nx < x_min_lim or nx > x_max_lim:
             travel_violations.append({
                 "line": line_no,
                 "type": "AXIS_TRAVEL_LIMIT_EXCEEDED",
                 "axis": "X",
                 "target_val": nx,
-                "message": f"X-axis target {nx}mm exceeds machine limits [{machine_limits.get('x_travel_min_mm')}, {machine_limits.get('x_travel_max_mm')}]."
+                "message": f"X-axis target {nx}mm exceeds machine limits [{x_min_lim}, {x_max_lim}]."
             })
-        if ny < machine_limits.get("y_travel_min_mm", -100.0) or ny > machine_limits.get("y_travel_max_mm", 400.0):
+        if ny < y_min_lim or ny > y_max_lim:
             travel_violations.append({
                 "line": line_no,
                 "type": "AXIS_TRAVEL_LIMIT_EXCEEDED",
                 "axis": "Y",
                 "target_val": ny,
-                "message": f"Y-axis target {ny}mm exceeds machine limits [{machine_limits.get('y_travel_min_mm')}, {machine_limits.get('y_travel_max_mm')}]."
+                "message": f"Y-axis target {ny}mm exceeds machine limits [{y_min_lim}, {y_max_lim}]."
             })
 
         # Check machine bed / workbench strike

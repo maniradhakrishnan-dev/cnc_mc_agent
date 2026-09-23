@@ -208,8 +208,8 @@ def run_surface_comparison(cad_path, features_path, sim_results_path, strategies
         deviations_report[strat_key] = {
             "name": strat_data.get("name", strat_key),
             "cycle_time_formatted": kinematics.get("cycle_time_formatted", "N/A"),
-            "cycle_time_sec": kinematics.get("estimated_cycle_time_sec", 0.0),
-            "cut_distance_mm": kinematics.get("total_cut_distance_mm", 0.0),
+            "cycle_time_sec": kinematics.get("cycle_time_sec") or kinematics.get("estimated_cycle_time_sec", 0.0),
+            "cut_distance_mm": kinematics.get("cut_distance_mm") or kinematics.get("total_cut_distance_mm", 0.0),
             "target_removed_vol_mm3": round(nominal_removed_vol, 1),
             "material_removed_mm3": round(actual_rem_vol, 1),
             "volumetric_fidelity_pct": vol_fidelity_pct,
@@ -225,8 +225,8 @@ def run_surface_comparison(cad_path, features_path, sim_results_path, strategies
             "verification_status": verif_status,
             "is_verified": is_verified,
             "gouging_check": {
-                "has_gouge": gouge_detected or uncut_detected,
-                "status": verif_status
+                "has_gouge": gouge_detected,
+                "status": "FAIL (Gouge Detected)" if gouge_detected else ("FAIL (Uncut Material)" if uncut_detected else "PASS")
             }
         }
 

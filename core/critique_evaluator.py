@@ -281,8 +281,8 @@ def evaluate_run(sim_path, deviations_path, tools_path, features_path=None, stra
             pred_scallop = preds.get("predicted_max_scallop_um", 0.0)
             pred_chipload = preds.get("predicted_max_chipload_mm", 0.0)
 
-            actual_time = kin.get("total_time_sec", 0.0)
-            actual_dev = dev.get("mean_deviation_um", 0.0)
+            actual_time = kin.get("cycle_time_sec") or kin.get("total_time_sec", 0.0)
+            actual_dev = dev.get("mean_surface_deviation_um") or dev.get("mean_deviation_um", 0.0)
             actual_scallop = dev.get("floor_scallop_height_um", 0.0)
             actual_chipload = kin.get("max_chipload_mm", 0.0)
 

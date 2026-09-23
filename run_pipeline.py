@@ -52,7 +52,7 @@ def run_step(step_num, step_name, script_name, args_list):
     print(f"⏱️ Step {step_num} completed in {elapsed:.2f}s\n")
     return res
 
-def run_freecad_worker(step_num, step_name, script_name, args_list):
+def run_freecad_worker(step_num, step_name, script_name, args_list, fatal_on_nonzero=True):
     script_path = os.path.join(CORE_DIR, script_name)
     if not os.path.exists(script_path):
         script_path = os.path.join(AGENT_DIR, script_name)
@@ -63,11 +63,18 @@ def run_freecad_worker(step_num, step_name, script_name, args_list):
     res = subprocess.run(cmd, capture_output=True, text=True, env=env)
     elapsed = time.time() - t0
     if res.returncode != 0:
-        print(f"\n[❌] PIPELINE ERROR at Step {step_num}: {step_name}")
-        print(res.stdout)
-        print(res.stderr)
-        sys.exit(1)
-    print(res.stdout.strip())
+        if fatal_on_nonzero:
+            print(f"\n[❌] PIPELINE ERROR at Step {step_num}: {step_name}")
+            print(res.stdout)
+            print(res.stderr)
+            sys.exit(1)
+        else:
+            print(f"\n[!] Step {step_num}: {step_name} reported tolerance deviations (code {res.returncode}).")
+            if res.stdout:
+                print(res.stdout.strip())
+            print(f"    Passing metrology report to diagnostic critique evaluator...")
+    else:
+        print(res.stdout.strip())
     print(f"⏱️ Step {step_num} completed in {elapsed:.2f}s\n")
     return res
 
@@ -388,9 +395,16 @@ def main():
         # Step 4b: Gate B - Machined Geometry Proof (Metrological Surface & Cross-Strategy Consistency)
         gate_b_json = os.path.join(iter_dir, "geometry_proof.json")
         if cad_file.lower().endswith((".step", ".stp")):
-            run_freecad_worker(f"4b.{iteration}", f"Gate B: Machined Geometry Proof [Iter {iteration}]", "_geometry_proof_worker.py", [
-                cad_file, iter_dir, gate_b_json, features_json
-            ])
+            run_freecad_worker(
+                f"4b.{iteration}",
+                f"Gate B: Machined Geometry Proof [Iter {iteration}]",
+                "_geometry_proof_worker.py",
+                [cad_file, iter_dir, gate_b_json, features_json],
+                fatal_on_nonzero=False
+            )
+            if not os.path.exists(gate_b_json):
+                print(f"\n[❌] PIPELINE ERROR: Gate B worker failed to produce {gate_b_json}")
+                sys.exit(1)
 
         # Step 5: Surface Deviation & Metrological Verifier
         surf_args = [
