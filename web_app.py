@@ -283,6 +283,32 @@ async def view_setup_sheet(run_id: str):
     return HTMLResponse(content=html)
 
 
+@app.get("/runs/{run_id}/mesh/{strategy}")
+async def get_run_mesh(run_id: str, strategy: str):
+    """Serve the CAMotics simulated cut STL mesh for 3D web preview."""
+    run_dir = RUNS_DIR / run_id
+    if not run_dir.exists():
+        raise HTTPException(status_code=404, detail="Run not found.")
+
+    file_map = {
+        "cycle_time": "1_cycle_time_cut.stl",
+        "accuracy_tuned": "2_accuracy_tuned_cut.stl",
+        "balanced": "3_balanced_cut.stl",
+        "1": "1_cycle_time_cut.stl",
+        "2": "2_accuracy_tuned_cut.stl",
+        "3": "3_balanced_cut.stl",
+    }
+    target_name = file_map.get(strategy.lower())
+    if not target_name:
+        raise HTTPException(status_code=400, detail=f"Unknown strategy: {strategy}")
+
+    stl_path = run_dir / target_name
+    if not stl_path.exists():
+        raise HTTPException(status_code=404, detail=f"Mesh {target_name} not found.")
+
+    return FileResponse(path=str(stl_path), media_type="model/stl", filename=target_name)
+
+
 # -----------------------------------------------------------------------------
 # Embedded Web Dashboard Frontend
 # -----------------------------------------------------------------------------
@@ -296,6 +322,9 @@ HTML_DASHBOARD = """<!DOCTYPE html>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
   <style>
     :root {
       --bg-dark: #070a13;
@@ -560,6 +589,40 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       margin-bottom: 1.5rem;
       color: #fda4af;
     }
+    /* 3D Machined Mesh Viewport */
+    .viewer-card {
+      margin-bottom: 2rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 1.5rem;
+    }
+    .strategy-btn-group {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .pill-btn {
+      background: #1e293b;
+      color: var(--text-dim);
+      border: 1px solid var(--border-accent);
+      padding: 0.45rem 1rem;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .pill-btn:hover {
+      background: #334155;
+      color: #fff;
+    }
+    .pill-btn.active {
+      background: rgba(245, 158, 11, 0.18);
+      color: #fbbf24;
+      border-color: #f59e0b;
+      box-shadow: 0 0 12px rgba(245, 158, 11, 0.25);
+    }
   </style>
 </head>
 <body>
@@ -658,6 +721,37 @@ HTML_DASHBOARD = """<!DOCTYPE html>
         <a id="btnFullscreenReport" class="btn-action btn-secondary" href="#" target="_blank">
           Open Report in New Tab ↗
         </a>
+      </div>
+    </div>
+
+    <!-- 3D Machined Workpiece Simulation (CAMotics Voxel Cut) -->
+    <div class="viewer-card" id="viewerCard">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.2rem;">
+        <div style="display: flex; align-items: center; gap: 0.65rem;">
+          <svg width="24" height="24" fill="none" stroke="#fbbf24" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5"/></svg>
+          <div>
+            <h3 style="font-size: 1.25rem; font-weight: 700; color: #fff;">3D Virtual Machining Inspection (CAMotics Voxel Cut)</h3>
+            <p style="font-size: 0.85rem; color: var(--text-dim); margin-top: 0.15rem;">Interactive subtractive 3D solid mesh carved by virtual CNC cutting tools</p>
+          </div>
+        </div>
+        <div class="strategy-btn-group">
+          <button class="pill-btn active" id="btnStlAcc" onclick="switchStrategy('accuracy_tuned')">🟡 2. Accuracy Tuned Cut</button>
+          <button class="pill-btn" id="btnStlBal" onclick="switchStrategy('balanced')">🟡 3. Balanced Cut</button>
+          <button class="pill-btn" id="btnStlCt" onclick="switchStrategy('cycle_time')">🟡 1. Cycle Time Cut</button>
+          <button class="pill-btn" style="color: var(--cyan); border-color: var(--cyan);" onclick="reset3DView()">⟲ Reset Camera</button>
+        </div>
+      </div>
+      <div style="position: relative; width: 100%; height: 500px; background: #070a13; border-radius: 12px; border: 1px solid var(--border); overflow: hidden;">
+        <div id="threeContainer" style="width: 100%; height: 100%;"></div>
+        <div id="viewerLoadingOverlay" style="position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(7,10,19,0.8); color: var(--cyan); font-family: 'JetBrains Mono'; font-size: 0.95rem;">
+          <span>Loading 3D Machined Mesh...</span>
+        </div>
+        <div style="position: absolute; bottom: 12px; left: 16px; font-size: 0.8rem; color: var(--text-dim); background: rgba(15,23,42,0.85); padding: 5px 12px; border-radius: 6px; border: 1px solid var(--border); pointer-events: none;">
+          🖱️ Left Click: Rotate • Right Click: Pan • Scroll: Zoom
+        </div>
+        <div id="strategyBadge" style="position: absolute; top: 12px; left: 16px; font-size: 0.85rem; font-family: 'JetBrains Mono'; font-weight: 700; color: #fbbf24; background: rgba(15,23,42,0.9); padding: 5px 12px; border-radius: 6px; border: 1px solid rgba(251,191,36,0.3); pointer-events: none;">
+          Strategy: ACCURACY_TUNED
+        </div>
       </div>
     </div>
 
@@ -816,8 +910,156 @@ HTML_DASHBOARD = """<!DOCTYPE html>
       btnFullscreenReport.href = `/runs/${runId}/report`;
       reportFrame.src = `/runs/${runId}/report`;
       reportCard.style.display = 'block';
+
+      currentRunId = runId;
+      setTimeout(() => {
+        loadMesh(runId, 'accuracy_tuned');
+      }, 150);
     } else {
       consoleStatus.textContent = '❌ EXECUTION ENCOUNTERED ERROR';
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Three.js 3D Machined Mesh Viewport Controller (CQ-Editor Gold Theme)
+  // ---------------------------------------------------------------------------
+  let currentRunId = null;
+  let activeStrategy = 'accuracy_tuned';
+  let scene, camera, renderer, controls, currentMesh, currentEdges;
+  let isViewerInitialized = false;
+
+  function initThreeViewer() {
+    const container = document.getElementById('threeContainer');
+    if (!container || isViewerInitialized) return;
+
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x070a13);
+
+    const width = container.clientWidth || 800;
+    const height = container.clientHeight || 500;
+
+    camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 2000);
+    camera.position.set(150, -180, 160);
+    camera.up.set(0, 0, 1); // Z-up for standard CNC spindle orientation
+
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(window.devicePixelRatio || 1);
+    renderer.setSize(width, height);
+    renderer.shadowMap.enabled = true;
+    container.appendChild(renderer.domElement);
+
+    controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.screenSpacePanning = true;
+
+    // Lighting setup for depth, shadows, and metallic reflections
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+    scene.add(ambientLight);
+
+    const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.85);
+    dirLight1.position.set(160, -200, 240);
+    scene.add(dirLight1);
+
+    const dirLight2 = new THREE.DirectionalLight(0x60a5fa, 0.35);
+    dirLight2.position.set(-160, 200, 160);
+    scene.add(dirLight2);
+
+    const bottomBounce = new THREE.DirectionalLight(0xfef08a, 0.25);
+    bottomBounce.position.set(0, 0, -150);
+    scene.add(bottomBounce);
+
+    // Subtle XY Grid Helper
+    const grid = new THREE.GridHelper(300, 30, 0x1e293b, 0x0f172a);
+    grid.rotation.x = Math.PI / 2;
+    grid.position.z = -15;
+    scene.add(grid);
+
+    window.addEventListener('resize', () => {
+      if (!container || !renderer) return;
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+    });
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+    isViewerInitialized = true;
+  }
+
+  function loadMesh(runId, strategy) {
+    initThreeViewer();
+    const loadingOverlay = document.getElementById('viewerLoadingOverlay');
+    const badge = document.getElementById('strategyBadge');
+    loadingOverlay.style.display = 'flex';
+    badge.textContent = `Loading: ${strategy.toUpperCase()}...`;
+
+    const loader = new THREE.STLLoader();
+    const url = `/runs/${runId}/mesh/${strategy}`;
+
+    loader.load(url, function (geometry) {
+      if (currentMesh) scene.remove(currentMesh);
+      if (currentEdges) scene.remove(currentEdges);
+
+      geometry.computeVertexNormals();
+      geometry.center();
+
+      // CadQuery yellow material (warm golden yellow with smooth metallic sheen)
+      const material = new THREE.MeshStandardMaterial({
+        color: 0xfbbf24,
+        roughness: 0.32,
+        metalness: 0.22,
+        side: THREE.DoubleSide
+      });
+
+      currentMesh = new THREE.Mesh(geometry, material);
+      scene.add(currentMesh);
+
+      // Subtle edge lines to highlight pockets, bosses, and drilled hole rims
+      const edgesGeom = new THREE.EdgesGeometry(geometry, 28);
+      currentEdges = new THREE.LineSegments(
+        edgesGeom,
+        new THREE.LineBasicMaterial({ color: 0xd97706, transparent: true, opacity: 0.4 })
+      );
+      scene.add(currentEdges);
+
+      // Frame camera to fit object bounding sphere
+      geometry.computeBoundingSphere();
+      const radius = geometry.boundingSphere.radius;
+      camera.position.set(radius * 1.5, -radius * 1.8, radius * 1.6);
+      controls.target.set(0, 0, 0);
+      controls.update();
+
+      loadingOverlay.style.display = 'none';
+      badge.textContent = `Strategy: ${strategy.toUpperCase()} Cut Mesh`;
+    }, undefined, function (error) {
+      loadingOverlay.style.display = 'none';
+      badge.textContent = `Mesh unavailable for ${strategy}`;
+    });
+  }
+
+  function switchStrategy(strategy) {
+    if (!currentRunId) return;
+    activeStrategy = strategy;
+    document.querySelectorAll('.strategy-btn-group .pill-btn').forEach(b => b.classList.remove('active'));
+    if (strategy === 'accuracy_tuned') document.getElementById('btnStlAcc').classList.add('active');
+    if (strategy === 'balanced') document.getElementById('btnStlBal').classList.add('active');
+    if (strategy === 'cycle_time') document.getElementById('btnStlCt').classList.add('active');
+    loadMesh(currentRunId, strategy);
+  }
+
+  function reset3DView() {
+    if (currentMesh && currentMesh.geometry && currentMesh.geometry.boundingSphere) {
+      const r = currentMesh.geometry.boundingSphere.radius;
+      camera.position.set(r * 1.5, -r * 1.8, r * 1.6);
+      controls.target.set(0, 0, 0);
+      controls.update();
     }
   }
 </script>

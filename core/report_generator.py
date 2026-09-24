@@ -252,42 +252,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <span>📈 Accuracy vs. Cycle-Time Pareto Frontier</span>
       </div>
       <div class="chart-wrapper">
-        <svg class="pareto-svg" viewBox="0 0 800 280">
-          <!-- Grid lines -->
-          <line x1="80" y1="40" x2="740" y2="40" stroke="#1f293d" stroke-dasharray="4"/>
-          <line x1="80" y1="110" x2="740" y2="110" stroke="#1f293d" stroke-dasharray="4"/>
-          <line x1="80" y1="180" x2="740" y2="180" stroke="#1f293d" stroke-dasharray="4"/>
-          <line x1="80" y1="240" x2="740" y2="240" stroke="#334155" stroke-width="2"/>
-          <line x1="80" y1="20" x2="80" y2="240" stroke="#334155" stroke-width="2"/>
-
-          <!-- Axis Labels -->
-          <text x="730" y="265" fill="#94a3b8" font-size="12" font-family="JetBrains Mono" text-anchor="end">Cycle Time (minutes) →</text>
-          <text x="40" y="30" fill="#94a3b8" font-size="12" font-family="JetBrains Mono" transform="rotate(-90 40 30)" text-anchor="end">Surface Deviation (±µm) →</text>
-
-          <!-- Ticks -->
-          <text x="70" y="245" fill="#64748b" font-size="11" font-family="JetBrains Mono" text-anchor="end">0</text>
-          <text x="70" y="185" fill="#64748b" font-size="11" font-family="JetBrains Mono" text-anchor="end">±20</text>
-          <text x="70" y="115" fill="#64748b" font-size="11" font-family="JetBrains Mono" text-anchor="end">±40</text>
-          <text x="70" y="45" fill="#64748b" font-size="11" font-family="JetBrains Mono" text-anchor="end">±60</text>
-
-          <!-- Pareto Curve Connecting the points -->
-          <path d="M 160 55 Q 320 160 680 225" fill="none" stroke="#06b6d4" stroke-width="3" stroke-dasharray="6,4"/>
-
-          <!-- Strategy 1: Cycle Time -->
-          <circle cx="160" cy="55" r="8" fill="#f59e0b" stroke="#fff" stroke-width="2"/>
-          <text x="175" y="52" fill="#f59e0b" font-size="13" font-weight="700" font-family="Outfit">1. CYCLE-TIME TUNED</text>
-          <text x="175" y="70" fill="#94a3b8" font-size="11" font-family="JetBrains Mono">{{CT_TIME}} | ±{{CT_DEV}} µm</text>
-
-          <!-- Strategy 3: Balanced -->
-          <circle cx="340" cy="165" r="8" fill="#3b82f6" stroke="#fff" stroke-width="2"/>
-          <text x="355" y="162" fill="#60a5fa" font-size="13" font-weight="700" font-family="Outfit">3. BALANCED</text>
-          <text x="355" y="180" fill="#94a3b8" font-size="11" font-family="JetBrains Mono">{{BAL_TIME}} | ±{{BAL_DEV}} µm</text>
-
-          <!-- Strategy 2: Accuracy Tuned -->
-          <circle cx="680" cy="225" r="8" fill="#10b981" stroke="#fff" stroke-width="2"/>
-          <text x="670" y="205" fill="#34d399" font-size="13" font-weight="700" font-family="Outfit" text-anchor="end">2. ACCURACY-TUNED</text>
-          <text x="670" y="222" fill="#94a3b8" font-size="11" font-family="JetBrains Mono" text-anchor="end">{{ACC_TIME}} | ±{{ACC_DEV}} µm</text>
-        </svg>
+        {{PARETO_SVG_CHART}}
       </div>
     </div>
 
@@ -412,56 +377,89 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 </html>
 """
 
-def generate_html_report(features_path, sim_results_path, deviations_path, out_html, run_id="latest"):
-    with open(features_path) as f:
-        features = json.load(f)
-    with open(sim_results_path) as f:
-        sim = json.load(f)
-    with open(deviations_path) as f:
-        dev = json.load(f)
+def build_pareto_svg(ct_data, bal_data, acc_data, ct_sim, bal_sim, acc_sim):
+    """Dynamically plot SVG Pareto Frontier curve and coordinates based on real cycle times and deviations."""
+    t_ct = ct_data.get("cycle_time_sec") or ct_sim.get("total_time_sec", 600.0)
+    t_bal = bal_data.get("cycle_time_sec") or bal_sim.get("total_time_sec", 1500.0)
+    t_acc = acc_data.get("cycle_time_sec") or acc_sim.get("total_time_sec", 3000.0)
 
-    stock = features.get("stock_requirements", {})
-    sx = stock.get("stock_x_mm", 100)
-    sy = stock.get("stock_y_mm", 80)
-    sz = stock.get("stock_z_mm", 25)
-    stock_vol_cm3 = round((sx * sy * sz) / 1000.0, 1)
+    d_ct = float(ct_data.get("mean_surface_deviation_um", 50.0))
+    d_bal = float(bal_data.get("mean_surface_deviation_um", 25.0))
+    d_acc = float(acc_data.get("mean_surface_deviation_um", 10.0))
 
-    ct_data = dev.get("CYCLE_TIME", {})
-    bal_data = dev.get("BALANCED", {})
-    acc_data = dev.get("ACCURACY_TUNED", {})
+    t_min = min(t_ct, t_bal, t_acc)
+    t_max = max(t_ct, t_bal, t_acc)
+    t_span = max(1.0, t_max - t_min)
 
-    ct_sim = sim.get("CYCLE_TIME", {}).get("kinematics", {})
-    bal_sim = sim.get("BALANCED", {}).get("kinematics", {})
-    acc_sim = sim.get("ACCURACY_TUNED", {}).get("kinematics", {})
+    d_min = min(d_ct, d_bal, d_acc)
+    d_max = max(d_ct, d_bal, d_acc)
+    d_span = max(1.0, d_max - d_min)
 
-    html = HTML_TEMPLATE
-    html = html.replace("{{RUN_ID}}", str(run_id))
-    html = html.replace("{{SOURCE_CAD}}", features.get("source_cad_file", "sample_part.step"))
-    html = html.replace("{{STOCK_DIMS}}", f"{sx} × {sy} × {sz} mm")
-    html = html.replace("{{STOCK_VOL}}", str(stock_vol_cm3))
-    html = html.replace("{{TIME_SPAN}}", f"{ct_data.get('cycle_time_formatted', '12m')} → {acc_data.get('cycle_time_formatted', '136m')}")
-    html = html.replace("{{ACC_SPAN}}", f"±{ct_data.get('mean_surface_deviation_um', 42.0)} µm → ±{acc_data.get('mean_surface_deviation_um', 4.2)} µm")
+    def to_svg_coords(t, d):
+        x = 140.0 + ((t - t_min) / t_span) * 540.0
+        y = 55.0 + ((d_max - d) / d_span) * 170.0
+        return round(x, 1), round(y, 1)
 
-    # Strategy 1
-    html = html.replace("{{CT_TIME}}", str(ct_data.get("cycle_time_formatted", "12m 21s")))
-    html = html.replace("{{CT_DEV}}", str(ct_data.get("mean_surface_deviation_um", 42.0)))
-    html = html.replace("{{CT_MAX_DEV}}", str(ct_data.get("max_surface_deviation_um", 55.0)))
-    html = html.replace("{{CT_DIST}}", str(round(ct_sim.get("cut_distance_mm", 12158.5), 1)))
-    html = html.replace("{{CT_VOL}}", str(round(ct_data.get("material_removed_mm3", 36395.0), 1)))
+    x_ct, y_ct = to_svg_coords(t_ct, d_ct)
+    x_bal, y_bal = to_svg_coords(t_bal, d_bal)
+    x_acc, y_acc = to_svg_coords(t_acc, d_acc)
 
-    # Strategy 3 (Balanced)
-    html = html.replace("{{BAL_TIME}}", str(bal_data.get("cycle_time_formatted", "38m 44s")))
-    html = html.replace("{{BAL_DEV}}", str(bal_data.get("mean_surface_deviation_um", 15.8)))
-    html = html.replace("{{BAL_MAX_DEV}}", str(bal_data.get("max_surface_deviation_um", 22.0)))
-    html = html.replace("{{BAL_DIST}}", str(round(bal_sim.get("cut_distance_mm", 35013.0), 1)))
-    html = html.replace("{{BAL_VOL}}", str(round(bal_data.get("material_removed_mm3", 40017.1), 1)))
+    ctrl_x = round(2 * x_bal - 0.5 * (x_ct + x_acc), 1)
+    ctrl_y = round(2 * y_bal - 0.5 * (y_ct + y_acc), 1)
 
-    # Strategy 2 (Accuracy)
-    html = html.replace("{{ACC_TIME}}", str(acc_data.get("cycle_time_formatted", "136m 06s")))
-    html = html.replace("{{ACC_DEV}}", str(acc_data.get("mean_surface_deviation_um", 4.2)))
-    html = html.replace("{{ACC_MAX_DEV}}", str(acc_data.get("max_surface_deviation_um", 6.5)))
-    html = html.replace("{{ACC_DIST}}", str(round(acc_sim.get("cut_distance_mm", 100703.4), 1)))
-    html = html.replace("{{ACC_VOL}}", str(round(acc_data.get("material_removed_mm3", 40042.1), 1)))
+    y_tick_top = f"±{round(d_max, 1)}"
+    y_tick_mid = f"±{round((d_min + d_max)/2.0, 1)}"
+    y_tick_bot = f"±{round(d_min, 1)}"
+
+    x_tick_left = f"{round(t_min/60.0, 1)}m"
+    x_tick_mid = f"{round((t_min + t_max)/120.0, 1)}m"
+    x_tick_right = f"{round(t_max/60.0, 1)}m"
+
+    ct_time_lbl = ct_data.get("cycle_time_formatted", f"{round(t_ct/60.0, 1)}m")
+    bal_time_lbl = bal_data.get("cycle_time_formatted", f"{round(t_bal/60.0, 1)}m")
+    acc_time_lbl = acc_data.get("cycle_time_formatted", f"{round(t_acc/60.0, 1)}m")
+
+    svg = f"""<svg class="pareto-svg" viewBox="0 0 800 280">
+      <!-- Grid lines -->
+      <line x1="80" y1="55" x2="740" y2="55" stroke="#1f293d" stroke-dasharray="4"/>
+      <line x1="80" y1="140" x2="740" y2="140" stroke="#1f293d" stroke-dasharray="4"/>
+      <line x1="80" y1="225" x2="740" y2="225" stroke="#1f293d" stroke-dasharray="4"/>
+      <line x1="80" y1="240" x2="740" y2="240" stroke="#334155" stroke-width="2"/>
+      <line x1="80" y1="20" x2="80" y2="240" stroke="#334155" stroke-width="2"/>
+
+      <!-- Axis Labels -->
+      <text x="730" y="265" fill="#94a3b8" font-size="12" font-family="JetBrains Mono" text-anchor="end">Cycle Time (minutes) →</text>
+      <text x="40" y="30" fill="#94a3b8" font-size="12" font-family="JetBrains Mono" transform="rotate(-90 40 30)" text-anchor="end">Surface Deviation (±µm) →</text>
+
+      <!-- Y Ticks -->
+      <text x="70" y="60" fill="#64748b" font-size="11" font-family="JetBrains Mono" text-anchor="end">{y_tick_top}</text>
+      <text x="70" y="145" fill="#64748b" font-size="11" font-family="JetBrains Mono" text-anchor="end">{y_tick_mid}</text>
+      <text x="70" y="230" fill="#64748b" font-size="11" font-family="JetBrains Mono" text-anchor="end">{y_tick_bot}</text>
+
+      <!-- X Ticks -->
+      <text x="140" y="255" fill="#64748b" font-size="11" font-family="JetBrains Mono" text-anchor="middle">{x_tick_left}</text>
+      <text x="410" y="255" fill="#64748b" font-size="11" font-family="JetBrains Mono" text-anchor="middle">{x_tick_mid}</text>
+      <text x="680" y="255" fill="#64748b" font-size="11" font-family="JetBrains Mono" text-anchor="middle">{x_tick_right}</text>
+
+      <!-- Dynamic Pareto Curve -->
+      <path d="M {x_ct} {y_ct} Q {ctrl_x} {ctrl_y} {x_acc} {y_acc}" fill="none" stroke="#06b6d4" stroke-width="3" stroke-dasharray="6,4"/>
+
+      <!-- Strategy 1: Cycle Time -->
+      <circle cx="{x_ct}" cy="{y_ct}" r="8" fill="#f59e0b" stroke="#fff" stroke-width="2"/>
+      <text x="{x_ct + 15}" y="{max(35, y_ct - 6)}" fill="#f59e0b" font-size="13" font-weight="700" font-family="Outfit">1. CYCLE-TIME</text>
+      <text x="{x_ct + 15}" y="{max(50, y_ct + 12)}" fill="#94a3b8" font-size="11" font-family="JetBrains Mono">{ct_time_lbl} | ±{d_ct} µm</text>
+
+      <!-- Strategy 3: Balanced -->
+      <circle cx="{x_bal}" cy="{y_bal}" r="8" fill="#3b82f6" stroke="#fff" stroke-width="2"/>
+      <text x="{x_bal + 15}" y="{max(40, y_bal - 6)}" fill="#60a5fa" font-size="13" font-weight="700" font-family="Outfit">3. BALANCED</text>
+      <text x="{x_bal + 15}" y="{max(55, y_bal + 12)}" fill="#94a3b8" font-size="11" font-family="JetBrains Mono">{bal_time_lbl} | ±{d_bal} µm</text>
+
+      <!-- Strategy 2: Accuracy Tuned -->
+      <circle cx="{x_acc}" cy="{y_acc}" r="8" fill="#10b981" stroke="#fff" stroke-width="2"/>
+      <text x="{min(730, x_acc - 15)}" y="{max(40, y_acc - 6)}" fill="#34d399" font-size="13" font-weight="700" font-family="Outfit" text-anchor="end">2. ACCURACY-TUNED</text>
+      <text x="{min(730, x_acc - 15)}" y="{max(55, y_acc + 12)}" fill="#94a3b8" font-size="11" font-family="JetBrains Mono" text-anchor="end">{acc_time_lbl} | ±{d_acc} µm</text>
+    </svg>"""
+    return svg
 
 def build_convergence_html(history_path):
     if not history_path or not os.path.exists(history_path):
@@ -557,6 +555,7 @@ def generate_html_report(features_path, sim_path, deviations_path, out_html, run
     acc_sim = sim.get("ACCURACY_TUNED", {}).get("kinematics", {})
 
     convergence_html = build_convergence_html(history_path)
+    pareto_svg_html = build_pareto_svg(ct_data, bal_data, acc_data, ct_sim, bal_sim, acc_sim)
 
     html = HTML_TEMPLATE
     html = html.replace("{{RUN_ID}}", str(run_id))
@@ -565,6 +564,7 @@ def generate_html_report(features_path, sim_path, deviations_path, out_html, run
     html = html.replace("{{STOCK_VOL}}", str(stock_vol_cm3))
     html = html.replace("{{TIME_SPAN}}", f"{ct_data.get('cycle_time_formatted', '12m')} → {acc_data.get('cycle_time_formatted', '136m')}")
     html = html.replace("{{ACC_SPAN}}", f"±{ct_data.get('mean_surface_deviation_um', 42.0)} µm → ±{acc_data.get('mean_surface_deviation_um', 4.2)} µm")
+    html = html.replace("{{PARETO_SVG_CHART}}", pareto_svg_html)
     html = html.replace("{{CONVERGENCE_SECTION}}", convergence_html)
 
     # Strategy 1
