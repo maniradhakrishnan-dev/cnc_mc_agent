@@ -1186,6 +1186,228 @@ def generate_refusal_report(refusal_json_path, features_json_path, out_html, run
     return out_html
 
 
+def generate_pipeline_failure_report(step_num, step_name, error_msg, features_json_path, out_html, run_id="latest"):
+    """
+    Builds a standalone HTML diagnostic failure report whenever any pipeline step
+    encounters a fatal exception or verification error.
+    """
+    feat_data = {}
+    if features_json_path and os.path.exists(features_json_path):
+        with open(features_json_path) as f:
+            feat_data = json.load(f)
+
+    cad_name = feat_data.get("source_cad_file", "unknown.step")
+    stock_req = feat_data.get("stock_requirements", {})
+    stock_x = stock_req.get("x_length_mm", 0.0)
+    stock_y = stock_req.get("y_length_mm", 0.0)
+    stock_z = stock_req.get("z_length_mm", 0.0)
+
+    # Clean and escape error message for safe HTML rendering
+    clean_err = str(error_msg).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").strip()
+
+    is_preflight = "PRE-FLIGHT G-CODE VALIDATION FAILED" in clean_err
+    diag_title = "Pre-Flight Feature Toolpath Safeguard Tripped" if is_preflight else f"Step {step_num} Execution Failure"
+
+    if is_preflight:
+        diag_explanation = (
+            "The deterministic pre-flight toolpath safety validator caught one or more CAD features with zero cutting passes. "
+            "In strict aerospace/production mode, the agent enforces that 100% of all extracted features receive cutting toolpaths. "
+            "This usually happens when pocket cavities are narrower than the assigned cutting tools."
+        )
+    else:
+        diag_explanation = (
+            f"The pipeline encountered a fatal execution error during Step {step_num} ({step_name}). "
+            "Execution was safely suspended to prevent posting invalid machine code."
+        )
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CNC Machine Code Agent - Pipeline Execution Failure</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Outfit:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {{
+      --bg-dark: #090d16;
+      --card-bg: #111827;
+      --card-border: #1e293b;
+      --accent-red: #ef4444;
+      --accent-amber: #f59e0b;
+      --accent-cyan: #06b6d4;
+      --text-main: #f3f4f6;
+      --text-dim: #9ca3af;
+    }}
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: 'Outfit', sans-serif;
+      line-height: 1.6;
+      padding: 2.5rem 1.5rem;
+    }}
+    .container {{ max-width: 1100px; margin: 0 auto; }}
+    header {{
+      margin-bottom: 2.5rem;
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 1.5rem;
+    }}
+    .badge {{
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.35rem 0.85rem;
+      border-radius: 9999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      font-family: 'JetBrains Mono', monospace;
+      text-transform: uppercase;
+    }}
+    .badge-alert {{ background: rgba(239, 68, 68, 0.18); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }}
+    .badge-info {{ background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }}
+    h1 {{
+      font-size: 2.2rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #ffffff 30%, #ef4444 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }}
+    .alert-banner {{
+      background: rgba(239, 68, 68, 0.08);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      border-left: 6px solid #ef4444;
+      border-radius: 12px;
+      padding: 1.5rem 1.75rem;
+      margin-bottom: 2.5rem;
+      display: flex;
+      gap: 1.25rem;
+      align-items: flex-start;
+    }}
+    .grid-summary {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1.25rem;
+      margin-bottom: 2.5rem;
+    }}
+    .stat-card {{
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 1.25rem;
+    }}
+    .stat-label {{ font-size: 0.8rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }}
+    .stat-val {{ font-size: 1.5rem; font-weight: 700; margin-top: 0.35rem; font-family: 'JetBrains Mono', monospace; color: #fff; }}
+    .card {{
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 1.75rem;
+      margin-bottom: 2rem;
+    }}
+    pre {{
+      background: #050811;
+      border: 1px solid #1e293b;
+      border-radius: 8px;
+      padding: 1.25rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.88rem;
+      color: #fca5a5;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.5;
+    }}
+    .rec-step {{
+      margin-bottom: 0.6rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      font-size: 0.92rem;
+    }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <div style="display: flex; gap: 0.75rem; align-items: center; margin-bottom: 0.5rem;">
+          <span class="badge badge-alert">● Pipeline Error: Step {step_num}</span>
+          <span class="badge badge-info">Deterministic Safety Trip</span>
+        </div>
+        <h1>CNC Machine Code Agent</h1>
+        <p style="color: var(--text-dim); margin-top: 0.35rem;">Pipeline Exception & Diagnostic Forensic Report</p>
+      </div>
+      <div style="text-align: right;">
+        <div style="font-size: 0.85rem; color: var(--text-dim);">Run ID: <span style="font-family: 'JetBrains Mono'; font-weight: 700; color: #fbbf24;">{run_id}</span></div>
+        <div style="font-family: 'JetBrains Mono'; font-weight: 700; color: var(--accent-cyan); font-size: 1.05rem; margin-top: 0.15rem;">{cad_name}</div>
+        <div style="font-size: 0.8rem; color: var(--text-dim); margin-top: 0.15rem;">Billet: {stock_x:.1f} × {stock_y:.1f} × {stock_z:.1f} mm</div>
+      </div>
+    </header>
+
+    <div class="alert-banner">
+      <div style="font-size: 2.2rem; line-height: 1;">⚠️</div>
+      <div>
+        <div style="font-size: 1.2rem; font-weight: 700; color: #fca5a5;">{diag_title}</div>
+        <div style="font-size: 0.95rem; color: #cbd5e1; margin-top: 0.4rem;">{diag_explanation}</div>
+      </div>
+    </div>
+
+    <div class="grid-summary">
+      <div class="stat-card" style="border-top: 3px solid #ef4444;">
+        <div class="stat-label">Failing Stage</div>
+        <div class="stat-val" style="color: #f87171;">Step {step_num}</div>
+        <div style="font-size: 0.85rem; color: var(--text-dim); margin-top: 0.2rem;">{step_name}</div>
+      </div>
+      <div class="stat-card" style="border-top: 3px solid #f59e0b;">
+        <div class="stat-label">Execution Status</div>
+        <div class="stat-val" style="color: #fbbf24;">HALTED</div>
+        <div style="font-size: 0.85rem; color: var(--text-dim); margin-top: 0.2rem;">Deterministic Interlock</div>
+      </div>
+      <div class="stat-card" style="border-top: 3px solid #3b82f6;">
+        <div class="stat-label">Target CAD</div>
+        <div class="stat-val" style="font-size: 1.15rem; color: #60a5fa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{cad_name}</div>
+        <div style="font-size: 0.85rem; color: var(--text-dim); margin-top: 0.2rem;">STEP Exact B-Rep</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-bottom: 1rem; color: #fca5a5;">🔍 Forensic Diagnostic Trace</h3>
+      <pre>{clean_err}</pre>
+    </div>
+
+    <div class="card" style="border: 1px solid var(--accent-cyan);">
+      <h3 style="color: var(--accent-cyan); margin-bottom: 0.75rem;">🛠️ Recommended Actionable Next Steps</h3>
+      <div class="rec-step">
+        <span style="color: var(--accent-cyan); font-weight: 700;">1.</span>
+        <span><strong>Cutter Accessibility Check:</strong> Verify whether any cavity widths in the CAD drawing (e.g. 4.0mm) are smaller than the assigned roughing/finishing tools. Assign Tool #3 (3.0mm flat endmill) to clear narrow slots.</span>
+      </div>
+      <div class="rec-step">
+        <span style="color: var(--accent-cyan); font-weight: 700;">2.</span>
+        <span><strong>Toolpath Strategy Adjustment:</strong> Enable rest-machining with secondary small tooling across all strategies, including CYCLE_TIME.</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+"""
+    os.makedirs(os.path.dirname(os.path.abspath(out_html)), exist_ok=True)
+    with open(out_html, "w") as f:
+        f.write(html)
+
+    print("=" * 80)
+    print(f" [Step {step_num}] PIPELINE FAILURE REPORT GENERATED: {out_html}")
+    print("=" * 80)
+    return out_html
+
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pareto Frontier Report Generator")
     parser.add_argument("--features", default=os.path.join(AGENT_DIR, "features.json"))

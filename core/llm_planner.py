@@ -96,7 +96,10 @@ def build_deterministic_fallback(features, tools, feedback=None):
     deepest = features.get("machinability_constraints", {}).get("deepest_feature_depth_mm", 0.0)
     if deepest > 30.0:
         endmill_rough = next((t for t in tools["tools"] if t["tool_number"] == 11), tools["tools"][0])
-        endmill_finish = next((t for t in tools["tools"] if t["tool_number"] == 12), tools["tools"][0])
+        if min_cavity < 6.0:
+            endmill_finish = next((t for t in tools["tools"] if t["tool_number"] == 3), tools["tools"][1])
+        else:
+            endmill_finish = next((t for t in tools["tools"] if t["tool_number"] == 12), tools["tools"][0])
     else:
         endmill_rough = next((t for t in tools["tools"] if t["tool_number"] == 1), tools["tools"][0])
         if min_cavity < 6.0:

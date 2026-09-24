@@ -28,6 +28,47 @@ from datetime import datetime
 AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
 CORE_DIR = os.path.join(AGENT_DIR, "core")
 RUNS_BASE_DIR = os.path.join(AGENT_DIR, "runs")
+CURRENT_RUN_CONTEXT = {}
+
+def handle_step_failure(step_num, step_name, err_output):
+    print(f"\n[❌] PIPELINE ERROR at Step {step_num}: {step_name}")
+    print(err_output)
+
+    run_dir = CURRENT_RUN_CONTEXT.get("run_dir")
+    if run_dir:
+        report_path = os.path.join(run_dir, "frontier_report.html")
+        features_json = CURRENT_RUN_CONTEXT.get("features_json")
+        run_id = CURRENT_RUN_CONTEXT.get("run_id", "latest")
+        cad_file = CURRENT_RUN_CONTEXT.get("cad_file", "unknown")
+        archived_cad = CURRENT_RUN_CONTEXT.get("archived_cad")
+
+        try:
+            from core.report_generator import generate_pipeline_failure_report
+            generate_pipeline_failure_report(
+                step_num, step_name, err_output, features_json, report_path, run_id=run_id
+            )
+        except Exception as e:
+            print(f"[!] Warning: Failed to generate pipeline failure report HTML: {e}")
+
+        meta_data = {
+            "run_id": run_id,
+            "timestamp": datetime.now().isoformat(),
+            "source_cad_file": cad_file,
+            "archived_cad_file": os.path.basename(archived_cad) if archived_cad else "source_cad.step",
+            "status": "PIPELINE_ERROR",
+            "failing_step": f"Step {step_num}: {step_name}",
+            "error_message": err_output.strip().splitlines()[-1] if err_output.strip() else "Unknown error",
+            "converged": False,
+            "total_iterations_run": 0,
+            "artifacts": {
+                "features": "features.json" if os.path.exists(os.path.join(run_dir, "features.json")) else None,
+                "report_html": "frontier_report.html"
+            }
+        }
+        with open(os.path.join(run_dir, "run_metadata.json"), "w") as f:
+            json.dump(meta_data, f, indent=2)
+
+    sys.exit(1)
 
 def run_step(step_num, step_name, script_name, args_list):
     script_path = os.path.join(CORE_DIR, script_name)
@@ -43,10 +84,8 @@ def run_step(step_num, step_name, script_name, args_list):
     elapsed = time.time() - t0
     
     if res.returncode != 0:
-        print(f"\n[❌] PIPELINE ERROR at Step {step_num}: {step_name}")
-        print(res.stdout)
-        print(res.stderr)
-        sys.exit(1)
+        err = res.stderr.strip() or res.stdout.strip() or f"Process exited with code {res.returncode}"
+        handle_step_failure(step_num, step_name, err)
         
     print(res.stdout.strip())
     print(f"⏱️ Step {step_num} completed in {elapsed:.2f}s\n")
@@ -64,10 +103,8 @@ def run_freecad_worker(step_num, step_name, script_name, args_list, fatal_on_non
     elapsed = time.time() - t0
     if res.returncode != 0:
         if fatal_on_nonzero:
-            print(f"\n[❌] PIPELINE ERROR at Step {step_num}: {step_name}")
-            print(res.stdout)
-            print(res.stderr)
-            sys.exit(1)
+            err = res.stderr.strip() or res.stdout.strip() or f"FreeCAD worker exited with code {res.returncode}"
+            handle_step_failure(step_num, step_name, err)
         else:
             print(f"\n[!] Step {step_num}: {step_name} reported tolerance deviations (code {res.returncode}).")
             if res.stdout:
@@ -290,6 +327,13 @@ def main():
     history_json = os.path.join(run_dir, "iteration_history.json")
     report_html = os.path.join(run_dir, "frontier_report.html")
     metadata_json = os.path.join(run_dir, "run_metadata.json")
+
+    CURRENT_RUN_CONTEXT.clear()
+    CURRENT_RUN_CONTEXT["run_dir"] = run_dir
+    CURRENT_RUN_CONTEXT["run_id"] = run_id
+    CURRENT_RUN_CONTEXT["cad_file"] = cad_file
+    CURRENT_RUN_CONTEXT["archived_cad"] = archived_cad
+    CURRENT_RUN_CONTEXT["features_json"] = features_json
 
     print("=" * 90)
     print(" 🚀 AUTONOMOUS CLOSED-LOOP CNC AGENT & METROLOGICAL VERIFICATION")
