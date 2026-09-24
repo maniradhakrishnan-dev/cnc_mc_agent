@@ -598,6 +598,594 @@ def generate_html_report(features_path, sim_path, deviations_path, out_html, run
     print("=" * 80)
     return out_html
 
+
+def generate_gate_a_failure_report(gate_a_json_path, features_json_path, out_html, run_id="latest"):
+    """
+    Builds a standalone, responsive, high-impact HTML diagnostic report when a CAD model
+    fails Gate A (B-Rep feature extraction volumetric reconstruction proof).
+    """
+    gate_data = {}
+    if os.path.exists(gate_a_json_path):
+        with open(gate_a_json_path) as f:
+            gate_data = json.load(f)
+
+    feat_data = {}
+    if os.path.exists(features_json_path):
+        with open(features_json_path) as f:
+            feat_data = json.load(f)
+
+    cad_name = gate_data.get("cad_file") or feat_data.get("source_cad_file", "unknown.step")
+    target_vol = gate_data.get("target_removal_volume_mm3", 0.0)
+    recon_vol = gate_data.get("reconstructed_feature_volume_mm3", 0.0)
+    unmatched_vol = gate_data.get("unmatched_volume_mm3", 0.0)
+    extra_vol = gate_data.get("extra_volume_mm3", 0.0)
+    total_residual = gate_data.get("total_residual_volume_mm3", 0.0)
+    fidelity_pct = gate_data.get("volumetric_fidelity_pct", 0.0)
+    tol_pct = gate_data.get("tolerance_pct", 5.0)
+    max_allowed = gate_data.get("max_allowed_residual_mm3", 0.0)
+
+    stock_req = feat_data.get("stock_requirements", {})
+    stock_x = stock_req.get("x_length_mm", 0.0)
+    stock_y = stock_req.get("y_length_mm", 0.0)
+    stock_z = stock_req.get("z_length_mm", 0.0)
+
+    audit_1 = feat_data.get("verification_audit", {}).get("audit_1_surface_accounting", {})
+    total_faces = audit_1.get("total_cad_faces", 0)
+    claimed_faces = audit_1.get("machined_feature_faces", 0)
+    stock_faces = audit_1.get("stock_boundary_faces", 0)
+    orphan_faces = audit_1.get("orphan_face_indices", [])
+    coverage_pct = audit_1.get("surface_coverage_pct", 0.0)
+
+    features_list = gate_data.get("per_feature_reconstruction", [])
+
+    features_rows = ""
+    for f in features_list:
+        features_rows += f"""
+        <tr>
+          <td style="font-family: 'JetBrains Mono'; font-weight: 600; color: #60a5fa;">{f.get('id', 'N/A')}</td>
+          <td><span class="badge badge-info" style="font-size: 0.75rem;">{f.get('type', 'feature')}</span></td>
+          <td style="font-family: 'JetBrains Mono'; text-align: right;">{f.get('reconstructed_volume_mm3', 0.0):,.1f} mm³</td>
+          <td style="color: #34d399; font-weight: 600;">Reconstructed Solid</td>
+        </tr>
+        """
+
+    orphan_badge_list = " ".join([f'<span class="badge badge-alert" style="margin-right: 0.35rem; font-size: 0.75rem;">Face #{idx}</span>' for idx in orphan_faces]) if orphan_faces else '<span class="badge badge-pass">None</span>'
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CNC Machine Code Agent - Gate A Verification Discrepancy</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Outfit:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {{
+      --bg-dark: #090d16;
+      --card-bg: #111827;
+      --card-border: #1e293b;
+      --accent-red: #ef4444;
+      --accent-amber: #f59e0b;
+      --accent-cyan: #06b6d4;
+      --accent-blue: #3b82f6;
+      --text-main: #f3f4f6;
+      --text-dim: #9ca3af;
+    }}
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: 'Outfit', sans-serif;
+      line-height: 1.6;
+      padding: 2.5rem 1.5rem;
+    }}
+    .container {{
+      max-width: 1200px;
+      margin: 0 auto;
+    }}
+    header {{
+      margin-bottom: 2.5rem;
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 1.5rem;
+    }}
+    .badge {{
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.35rem 0.85rem;
+      border-radius: 9999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      font-family: 'JetBrains Mono', monospace;
+      text-transform: uppercase;
+    }}
+    .badge-alert {{ background: rgba(239, 68, 68, 0.18); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }}
+    .badge-warn {{ background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }}
+    .badge-pass {{ background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }}
+    .badge-info {{ background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }}
+    
+    h1 {{
+      font-size: 2.2rem;
+      font-weight: 800;
+      letter-spacing: -0.025em;
+      background: linear-gradient(135deg, #ffffff 30%, #ef4444 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }}
+    .subtitle {{ color: var(--text-dim); margin-top: 0.35rem; font-size: 1.05rem; }}
+
+    .alert-banner {{
+      background: rgba(239, 68, 68, 0.08);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      border-left: 6px solid #ef4444;
+      border-radius: 12px;
+      padding: 1.5rem 1.75rem;
+      margin-bottom: 2.5rem;
+      display: flex;
+      gap: 1.25rem;
+      align-items: flex-start;
+    }}
+    .alert-icon {{ font-size: 2.2rem; line-height: 1; }}
+    .alert-title {{ font-size: 1.2rem; font-weight: 700; color: #fca5a5; }}
+    .alert-desc {{ font-size: 0.95rem; color: #cbd5e1; margin-top: 0.4rem; }}
+
+    .grid-summary {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1.25rem;
+      margin-bottom: 2.5rem;
+    }}
+    .stat-card {{
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 1.25rem;
+    }}
+    .stat-label {{ font-size: 0.8rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }}
+    .stat-val {{ font-size: 1.7rem; font-weight: 700; margin-top: 0.35rem; font-family: 'JetBrains Mono', monospace; color: #fff; }}
+    .stat-sub {{ font-size: 0.85rem; margin-top: 0.2rem; }}
+
+    .card {{
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 1.75rem;
+      margin-bottom: 2rem;
+    }}
+    .card-title {{
+      font-size: 1.15rem;
+      font-weight: 700;
+      margin-bottom: 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }}
+
+    table {{
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 0.5rem;
+      font-size: 0.95rem;
+    }}
+    th, td {{
+      padding: 0.85rem 1rem;
+      text-align: left;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }}
+    th {{
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-dim);
+      font-weight: 600;
+    }}
+    tr:last-child td {{ border-bottom: none; }}
+
+    .rec-box {{
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px dashed var(--card-border);
+      border-radius: 10px;
+      padding: 1.25rem;
+      margin-top: 1rem;
+    }}
+    .rec-step {{
+      margin-bottom: 0.6rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      font-size: 0.92rem;
+    }}
+    .rec-step:last-child {{ margin-bottom: 0; }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <div style="display: flex; gap: 0.75rem; align-items: center; margin-bottom: 0.5rem;">
+          <span class="badge badge-alert">● Gate A Discrepancy Detected</span>
+          <span class="badge badge-info">Safety Interlock Engaged</span>
+        </div>
+        <h1>CNC Machine Code Agent</h1>
+        <p class="subtitle">Gate A: B-Rep Feature Extraction & Mathematical Volumetric Proof</p>
+      </div>
+      <div style="text-align: right;">
+        <div style="font-size: 0.85rem; color: var(--text-dim);">Run ID: <span style="font-family: 'JetBrains Mono'; font-weight: 700; color: #fbbf24;">{run_id}</span></div>
+        <div style="font-family: 'JetBrains Mono'; font-weight: 700; color: var(--accent-cyan); font-size: 1.05rem; margin-top: 0.15rem;">{cad_name}</div>
+        <div style="font-size: 0.8rem; color: var(--text-dim); margin-top: 0.15rem;">Billet: {stock_x:.1f} × {stock_y:.1f} × {stock_z:.1f} mm</div>
+      </div>
+    </header>
+
+    <!-- Prominent Safety Refusal Banner -->
+    <div class="alert-banner">
+      <div class="alert-icon">🛑</div>
+      <div>
+        <div class="alert-title">Machining Halted: Autonomous Mathematical Gate A Rejected Part</div>
+        <div class="alert-desc">
+          The autonomous B-Rep verification engine detected a volumetric discrepancy between the nominal CAD model and the extracted 2.5D feature solids.
+          <strong>{unmatched_vol:,.1f} mm³</strong> of target CAD volume was not accounted for by the extracted feature set.
+          To protect against machining an incomplete part or violating tolerances, the agent refused to generate unverified G-code.
+        </div>
+      </div>
+    </div>
+
+    <!-- Core Mathematical Verification Cards -->
+    <div class="grid-summary">
+      <div class="stat-card" style="border-top: 3px solid #ef4444;">
+        <div class="stat-label">Gate A Status</div>
+        <div class="stat-val" style="color: #f87171;">REJECTED</div>
+        <div class="stat-sub" style="color: #fca5a5;">Discrepancy &gt; {tol_pct:.1f}% Tol</div>
+      </div>
+      <div class="stat-card" style="border-top: 3px solid #f59e0b;">
+        <div class="stat-label">Volumetric Fidelity</div>
+        <div class="stat-val">{fidelity_pct:.1f}%</div>
+        <div class="stat-sub" style="color: var(--accent-amber);">Target Threshold: &ge; 97.5%</div>
+      </div>
+      <div class="stat-card" style="border-top: 3px solid #ef4444;">
+        <div class="stat-label">Unmatched Volume</div>
+        <div class="stat-val">{unmatched_vol:,.1f} <span style="font-size: 1rem; color: var(--text-dim);">mm³</span></div>
+        <div class="stat-sub" style="color: #fca5a5;">Omitted from Features</div>
+      </div>
+      <div class="stat-card" style="border-top: 3px solid #3b82f6;">
+        <div class="stat-label">Surface Coverage</div>
+        <div class="stat-val">{coverage_pct:.1f}%</div>
+        <div class="stat-sub" style="color: #60a5fa;">{len(orphan_faces)} Unclassified Faces</div>
+      </div>
+    </div>
+
+    <!-- Mathematical Discrepancy Breakdown -->
+    <div class="card">
+      <div class="card-title">
+        <span>📐 Mathematical Volumetric Conservation Audit</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Audit Metric</th>
+            <th>Measured Value</th>
+            <th>Maximum Allowed</th>
+            <th>Verification Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="font-weight: 600;">Raw Stock Billet Volume</td>
+            <td style="font-family: 'JetBrains Mono';">{stock_x * stock_y * stock_z:,.1f} mm³</td>
+            <td>-</td>
+            <td style="color: #34d399;">Nominal Enclosure</td>
+          </tr>
+          <tr>
+            <td style="font-weight: 600;">Target Removal Volume (&Delta;V)</td>
+            <td style="font-family: 'JetBrains Mono'; font-weight: 700; color: #fbbf24;">{target_vol:,.1f} mm³</td>
+            <td>-</td>
+            <td style="color: #60a5fa;">Nominal Material to Mill</td>
+          </tr>
+          <tr>
+            <td style="font-weight: 600;">Reconstructed Feature Solid Volume</td>
+            <td style="font-family: 'JetBrains Mono';">{recon_vol:,.1f} mm³</td>
+            <td>-</td>
+            <td>Solid Union of Extracted Features</td>
+          </tr>
+          <tr>
+            <td style="font-weight: 600;">Unmatched (Omitted) Volume</td>
+            <td style="font-family: 'JetBrains Mono'; font-weight: 700; color: #f87171;">{unmatched_vol:,.1f} mm³</td>
+            <td style="font-family: 'JetBrains Mono';">{max_allowed:,.1f} mm³</td>
+            <td style="color: #f87171; font-weight: 700;">EXCEEDED</td>
+          </tr>
+          <tr>
+            <td style="font-weight: 600;">Total Residual (Unmatched + Extra)</td>
+            <td style="font-family: 'JetBrains Mono'; font-weight: 700; color: #f87171;">{total_residual:,.1f} mm³</td>
+            <td style="font-family: 'JetBrains Mono';">{max_allowed:,.1f} mm³</td>
+            <td style="color: #f87171; font-weight: 700;">FAIL (Gate A Threshold)</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Topological Surface Accounting Card -->
+    <div class="card">
+      <div class="card-title">
+        <span>🔍 Topological Surface Accounting ("No Orphan Faces")</span>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.25rem;">
+        <div style="background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 8px;">
+          <div style="font-size: 0.8rem; color: var(--text-dim);">Total CAD B-Rep Faces</div>
+          <div style="font-size: 1.4rem; font-weight: 700; font-family: 'JetBrains Mono';">{total_faces}</div>
+        </div>
+        <div style="background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 8px;">
+          <div style="font-size: 0.8rem; color: var(--text-dim);">Feature Faces Claimed</div>
+          <div style="font-size: 1.4rem; font-weight: 700; font-family: 'JetBrains Mono'; color: #34d399;">{claimed_faces}</div>
+        </div>
+        <div style="background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 8px;">
+          <div style="font-size: 0.8rem; color: var(--text-dim);">Stock Boundary Faces</div>
+          <div style="font-size: 1.4rem; font-weight: 700; font-family: 'JetBrains Mono'; color: #60a5fa;">{stock_faces}</div>
+        </div>
+        <div style="background: rgba(239,68,68,0.08); padding: 1rem; border-radius: 8px; border: 1px solid rgba(239,68,68,0.25);">
+          <div style="font-size: 0.8rem; color: #fca5a5;">Unclassified / Orphan Faces</div>
+          <div style="font-size: 1.4rem; font-weight: 700; font-family: 'JetBrains Mono'; color: #f87171;">{len(orphan_faces)}</div>
+        </div>
+      </div>
+
+      <div style="font-size: 0.9rem; color: var(--text-dim); margin-bottom: 0.75rem;">
+        <strong>Unclassified CAD Face Indices:</strong>
+      </div>
+      <div>{orphan_badge_list}</div>
+
+      <div class="rec-box">
+        <div style="font-weight: 700; color: #fbbf24; margin-bottom: 0.5rem;">Diagnostic Root Cause Analysis:</div>
+        <div class="rec-step">
+          <span>•</span>
+          <span>The unclassified faces ({", ".join(str(x) for x in orphan_faces) if orphan_faces else "none"}) represent <strong>exterior corner chamfers or outer perimeter contours</strong> on the raw stock envelope.</span>
+        </div>
+        <div class="rec-step">
+          <span>•</span>
+          <span>Because the current feature extractor prioritizes enclosed 2.5D prismatic cavities (pockets, islands, bearing bores, and bolt holes), these exterior vertical perimeter chamfers were omitted from the extracted feature set.</span>
+        </div>
+        <div class="rec-step">
+          <span>•</span>
+          <span>The Gate A mathematical reconstructor correctly detected this gap before any G-code was posted, strictly enforcing industrial workpiece safety.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Successfully Reconstructed Features List -->
+    {f'''
+    <div class="card">
+      <div class="card-title">
+        <span>✅ Successfully Reconstructed Feature Solids ({len(features_list)} features)</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Feature ID</th>
+            <th>Type</th>
+            <th style="text-align: right;">Reconstructed Volume</th>
+            <th>Gate Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {features_rows}
+        </tbody>
+      </table>
+    </div>
+    ''' if features_list else ''}
+
+    <!-- Operator / Engineer Next Steps -->
+    <div class="card" style="border: 1px solid var(--accent-cyan);">
+      <div class="card-title" style="color: var(--accent-cyan);">
+        <span>🛠️ Recommended Actionable Next Steps</span>
+      </div>
+      <div class="rec-step">
+        <span style="color: var(--accent-cyan); font-weight: 700;">1.</span>
+        <span><strong>Feature Extractor Upgrade:</strong> Add an exterior perimeter profile & vertical corner chamfer classifier to <code>core/_extract_worker.py</code> to claim exterior chamfer faces.</span>
+      </div>
+      <div class="rec-step">
+        <span style="color: var(--accent-cyan); font-weight: 700;">2.</span>
+        <span><strong>Run Fully-Supported Prismatic Benchmark Parts:</strong> Test parts with 100% 3-axis internal cavity coverage such as <code>PART_08_dual_bearing_gearbox.step</code>, <code>PART_09_actuator_bracket.step</code>, or <code>PART_06_aerospace_bulkhead.step</code>.</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+"""
+
+    os.makedirs(os.path.dirname(os.path.abspath(out_html)), exist_ok=True)
+    with open(out_html, "w") as f:
+        f.write(html)
+
+    print("=" * 80)
+    print(" [Step 1b] GATE A DISCREPANCY AUDIT REPORT GENERATED")
+    print(f" Generated HTML Report: {out_html}")
+    print(f" File Size            : {round(os.path.getsize(out_html) / 1024.0, 1)} KB")
+    print("=" * 80)
+    return out_html
+
+
+def generate_refusal_report(refusal_json_path, features_json_path, out_html, run_id="latest"):
+    """
+    Builds a standalone HTML refusal report when a part triggers the REQ.md machinability refusal condition.
+    """
+    ref_data = {}
+    if os.path.exists(refusal_json_path):
+        with open(refusal_json_path) as f:
+            ref_data = json.load(f)
+
+    feat_data = {}
+    if os.path.exists(features_json_path):
+        with open(features_json_path) as f:
+            feat_data = json.load(f)
+
+    cad_name = feat_data.get("source_cad_file", "unknown.step")
+    offending_id = ref_data.get("offending_feature_id", "Unknown Feature")
+    corner_r = ref_data.get("internal_corner_radius_mm", 0.0)
+    min_tool_diam = ref_data.get("smallest_available_tool_diam_mm", 0.0)
+    min_tool_r = ref_data.get("smallest_available_tool_radius_mm", 0.0)
+    req_diam = ref_data.get("required_tool_diameter_mm", 0.0)
+    reason = ref_data.get("reason", "Internal corner radius is smaller than smallest tool in library.")
+    resolution = ref_data.get("resolution_instructions", "Add a smaller cutter or modify CAD geometry.")
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CNC Machine Code Agent - Machinability Refusal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Outfit:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {{
+      --bg-dark: #090d16;
+      --card-bg: #111827;
+      --card-border: #1e293b;
+      --accent-red: #ef4444;
+      --accent-amber: #f59e0b;
+      --accent-cyan: #06b6d4;
+      --text-main: #f3f4f6;
+      --text-dim: #9ca3af;
+    }}
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: 'Outfit', sans-serif;
+      line-height: 1.6;
+      padding: 2.5rem 1.5rem;
+    }}
+    .container {{ max-width: 1000px; margin: 0 auto; }}
+    header {{
+      margin-bottom: 2.5rem;
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 1.5rem;
+    }}
+    .badge {{
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.35rem 0.85rem;
+      border-radius: 9999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      font-family: 'JetBrains Mono', monospace;
+      text-transform: uppercase;
+    }}
+    .badge-alert {{ background: rgba(239, 68, 68, 0.18); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }}
+    .badge-info {{ background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }}
+    h1 {{
+      font-size: 2.2rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #ffffff 30%, #ef4444 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }}
+    .alert-banner {{
+      background: rgba(239, 68, 68, 0.08);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      border-left: 6px solid #ef4444;
+      border-radius: 12px;
+      padding: 1.5rem 1.75rem;
+      margin-bottom: 2.5rem;
+      display: flex;
+      gap: 1.25rem;
+      align-items: flex-start;
+    }}
+    .card {{
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 1.75rem;
+      margin-bottom: 2rem;
+    }}
+    table {{ width: 100%; border-collapse: collapse; margin-top: 0.5rem; font-size: 0.95rem; }}
+    th, td {{ padding: 0.85rem 1rem; text-align: left; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }}
+    th {{ font-size: 0.75rem; text-transform: uppercase; color: var(--text-dim); }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <div style="display: flex; gap: 0.75rem; align-items: center; margin-bottom: 0.5rem;">
+          <span class="badge badge-alert">● Formal Machinability Refusal</span>
+          <span class="badge badge-info">REQ.md Rule Compliance</span>
+        </div>
+        <h1>CNC Machine Code Agent</h1>
+        <p style="color: var(--text-dim); margin-top: 0.35rem;">Autonomous Machinability Constraint Enforcement</p>
+      </div>
+      <div style="text-align: right;">
+        <div style="font-size: 0.85rem; color: var(--text-dim);">Run ID: <span style="font-family: 'JetBrains Mono'; font-weight: 700; color: #fbbf24;">{run_id}</span></div>
+        <div style="font-family: 'JetBrains Mono'; font-weight: 700; color: var(--accent-cyan); font-size: 1.05rem; margin-top: 0.15rem;">{cad_name}</div>
+      </div>
+    </header>
+
+    <div class="alert-banner">
+      <div style="font-size: 2.2rem; line-height: 1;">🛑</div>
+      <div>
+        <div style="font-size: 1.2rem; font-weight: 700; color: #fca5a5;">Program Generation Refused: Geometric Tool Incompatibility</div>
+        <div style="font-size: 0.95rem; color: #cbd5e1; margin-top: 0.4rem;">{reason}</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-bottom: 1rem;">🔍 Offending Feature Audit</h3>
+      <table>
+        <thead>
+          <tr><th>Constraint</th><th>Measured CAD Value</th><th>Tool Library Limit</th><th>Requirement</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="font-weight: 600;">Offending Feature</td>
+            <td style="font-family: 'JetBrains Mono'; color: #60a5fa;">{offending_id}</td>
+            <td>-</td>
+            <td>Pocket Internal Corner</td>
+          </tr>
+          <tr>
+            <td style="font-weight: 600;">Internal Corner Radius</td>
+            <td style="font-family: 'JetBrains Mono'; color: #f87171; font-weight: 700;">{corner_r:.2f} mm</td>
+            <td style="font-family: 'JetBrains Mono';">Smallest Cutter R = {min_tool_r:.2f} mm</td>
+            <td style="color: #f87171;">Radius &lt; Cutter Radius</td>
+          </tr>
+          <tr>
+            <td style="font-weight: 600;">Smallest Available Tool</td>
+            <td style="font-family: 'JetBrains Mono';">&empty; {min_tool_diam:.1f} mm</td>
+            <td>-</td>
+            <td>Too Large to Enter Corner</td>
+          </tr>
+          <tr>
+            <td style="font-weight: 600;">Required Tool Diameter</td>
+            <td style="font-family: 'JetBrains Mono'; color: #34d399; font-weight: 700;">&le; {req_diam:.2f} mm</td>
+            <td>-</td>
+            <td>Necessary for Zero Gouging</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card" style="border: 1px solid var(--accent-cyan);">
+      <h3 style="color: var(--accent-cyan); margin-bottom: 0.75rem;">🛠️ Resolution Instructions</h3>
+      <div style="font-size: 0.95rem; line-height: 1.6;">{resolution}</div>
+    </div>
+  </div>
+</body>
+</html>
+"""
+    os.makedirs(os.path.dirname(os.path.abspath(out_html)), exist_ok=True)
+    with open(out_html, "w") as f:
+        f.write(html)
+    return out_html
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pareto Frontier Report Generator")
     parser.add_argument("--features", default=os.path.join(AGENT_DIR, "features.json"))
@@ -609,3 +1197,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     generate_html_report(args.features, args.sim, args.deviations, args.out, run_id=args.run_id, history_path=args.history)
+

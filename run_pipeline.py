@@ -312,9 +312,57 @@ def main():
     # Step 1b: Gate A - B-Rep Feature Extraction Proof (Mathematical Reconstruction)
     if cad_file.lower().endswith((".step", ".stp")):
         gate_a_json = os.path.join(run_dir, "extraction_proof.json")
-        run_freecad_worker("1b", "Gate A: B-Rep Feature Extraction Proof", "_extraction_proof_worker.py", [
+        res_a = run_freecad_worker("1b", "Gate A: B-Rep Feature Extraction Proof", "_extraction_proof_worker.py", [
             cad_file, features_json, gate_a_json
-        ])
+        ], fatal_on_nonzero=False)
+
+        gate_a_passed = True
+        gate_a_res = {}
+        if os.path.exists(gate_a_json):
+            with open(gate_a_json) as f:
+                gate_a_res = json.load(f)
+            gate_a_passed = (gate_a_res.get("status") == "PASS")
+        else:
+            gate_a_passed = (res_a.returncode == 0)
+
+        if not gate_a_passed:
+            report_path = os.path.join(run_dir, "frontier_report.html")
+            try:
+                from core.report_generator import generate_gate_a_failure_report
+                generate_gate_a_failure_report(gate_a_json, features_json, report_path, run_id=run_id)
+            except Exception as e:
+                print(f"[!] Warning: Failed to generate Gate A report HTML: {e}")
+
+            meta_data = {
+                "run_id": run_id,
+                "timestamp": datetime.now().isoformat(),
+                "source_cad_file": cad_file,
+                "archived_cad_file": os.path.basename(archived_cad),
+                "status": "GATE_A_REJECTED",
+                "verdict": "DISCREPANCY_DETECTED",
+                "gate_a": gate_a_res,
+                "converged": False,
+                "total_iterations_run": 0,
+                "artifacts": {
+                    "features": "features.json",
+                    "extraction_proof": "extraction_proof.json",
+                    "report_html": "frontier_report.html"
+                }
+            }
+            with open(os.path.join(run_dir, "run_metadata.json"), "w") as f:
+                json.dump(meta_data, f, indent=2)
+
+            print("\n" + "!" * 90)
+            print(" 🛑 GATE A B-REP EXTRACTION PROOF REJECTED (Volumetric Discrepancy Detected)")
+            print("!" * 90)
+            print(f" Target Removed Vol : {gate_a_res.get('target_removal_volume_mm3', 0.0):,.1f} mm³")
+            print(f" Reconstructed Vol  : {gate_a_res.get('reconstructed_feature_volume_mm3', 0.0):,.1f} mm³")
+            print(f" Unmatched Vol      : {gate_a_res.get('unmatched_volume_mm3', 0.0):,.1f} mm³")
+            print(f" Total Residual     : {gate_a_res.get('total_residual_volume_mm3', 0.0):,.1f} mm³ (Max Allowed: {gate_a_res.get('max_allowed_residual_mm3', 0.0):,.1f} mm³)")
+            print(f" Volumetric Fidelity: {gate_a_res.get('volumetric_fidelity_pct', 0.0):.1f}% (Threshold >= 97.5%)")
+            print(f" 📄 Forensic Diagnostic Report generated: {report_path}")
+            print("!" * 90 + "\n")
+            sys.exit(1)
 
     # Refusal Check (REQ.md Line 41):
     # 'A part with an internal corner radius smaller than the smallest tool in the library.
@@ -330,6 +378,32 @@ def main():
         refusal_path = os.path.join(run_dir, "refusal_notice.json")
         with open(refusal_path, "w") as f:
             json.dump(refusal_notice, f, indent=2)
+
+        report_path = os.path.join(run_dir, "frontier_report.html")
+        try:
+            from core.report_generator import generate_refusal_report
+            generate_refusal_report(refusal_path, features_json, report_path, run_id=run_id)
+        except Exception as e:
+            print(f"[!] Warning: Failed to generate refusal report HTML: {e}")
+
+        meta_data = {
+            "run_id": run_id,
+            "timestamp": datetime.now().isoformat(),
+            "source_cad_file": cad_file,
+            "archived_cad_file": os.path.basename(archived_cad),
+            "status": "REFUSED_UNMACHINABLE",
+            "refusal": refusal_notice,
+            "converged": False,
+            "total_iterations_run": 0,
+            "artifacts": {
+                "features": "features.json",
+                "refusal_notice": "refusal_notice.json",
+                "report_html": "frontier_report.html"
+            }
+        }
+        with open(os.path.join(run_dir, "run_metadata.json"), "w") as f:
+            json.dump(meta_data, f, indent=2)
+
         print("\n" + "!" * 90)
         print(" 🛑 FORMAL MACHINABILITY REFUSAL ISSUED (REQ.md Case)")
         print("!" * 90)
@@ -341,6 +415,7 @@ def main():
         print(f" Reason        : {refusal_notice['reason']}")
         print(f" Resolution    : {refusal_notice['resolution_instructions']}")
         print(f"\nSaved refusal notice to: {refusal_path}")
+        print(f"📄 Refusal Report generated: {report_path}")
         print("!" * 90 + "\n")
         sys.exit(2)
 

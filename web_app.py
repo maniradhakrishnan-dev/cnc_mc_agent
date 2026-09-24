@@ -891,10 +891,30 @@ HTML_DASHBOARD = """<!DOCTYPE html>
   });
 
   async function handleRunCompleted(runId, finalStatus) {
-    if (finalStatus === 'refused') {
+    const statusRes = await fetch(`/api/status/${runId}`);
+    const statusData = await statusRes.json();
+
+    if (statusData.has_report) {
+      btnFullscreenReport.href = `/runs/${runId}/report`;
+      reportFrame.src = `/runs/${runId}/report`;
+      reportCard.style.display = 'block';
+    }
+
+    if (statusData.has_package) {
+      btnDownloadZip.href = `/runs/${runId}/package`;
+      btnDownloadZip.style.display = 'inline-flex';
+    } else {
+      btnDownloadZip.style.display = 'none';
+    }
+
+    const hasSetupSheet = statusData.metadata && statusData.metadata.status !== 'GATE_A_REJECTED' && statusData.metadata.status !== 'REFUSED_UNMACHINABLE';
+    btnSetupSheet.style.display = hasSetupSheet ? 'inline-flex' : 'none';
+    if (hasSetupSheet) {
+      btnSetupSheet.href = `/runs/${runId}/setup_sheet`;
+    }
+
+    if (finalStatus === 'refused' || (statusData.metadata && statusData.metadata.status === 'REFUSED_UNMACHINABLE')) {
       consoleStatus.textContent = '🛑 MACHINABILITY REFUSAL ISSUED';
-      const statusRes = await fetch(`/api/status/${runId}`);
-      const statusData = await statusRes.json();
       if (statusData.refusal) {
         document.getElementById('refusalReasonText').textContent = statusData.refusal.reason;
         document.getElementById('refusalResolutionText').textContent = statusData.refusal.resolution_instructions;
@@ -905,18 +925,16 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 
     if (finalStatus === 'completed') {
       consoleStatus.textContent = '✅ PIPELINE COMPLETED';
-      btnDownloadZip.href = `/runs/${runId}/package`;
-      btnSetupSheet.href = `/runs/${runId}/setup_sheet`;
-      btnFullscreenReport.href = `/runs/${runId}/report`;
-      reportFrame.src = `/runs/${runId}/report`;
-      reportCard.style.display = 'block';
-
       currentRunId = runId;
       setTimeout(() => {
         loadMesh(runId, 'accuracy_tuned');
       }, 150);
     } else {
-      consoleStatus.textContent = '❌ EXECUTION ENCOUNTERED ERROR';
+      if (statusData.metadata && statusData.metadata.status === 'GATE_A_REJECTED') {
+        consoleStatus.textContent = '🛑 GATE A DISCREPANCY REJECTED';
+      } else {
+        consoleStatus.textContent = '❌ EXECUTION ENCOUNTERED ERROR';
+      }
     }
   }
 
@@ -1079,7 +1097,7 @@ def main():
     import uvicorn
     import argparse
 
-    parser = argparse.ArgumentParser(description="CNC Machine Code Agent Web Server")
+    parser = argparse.ArgumentParser(description="CNC Machine Code Agent ")
     parser.add_argument("--host", default="0.0.0.0", help="Host interface (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8000, help="Server port (default: 8000)")
     args = parser.parse_args()
