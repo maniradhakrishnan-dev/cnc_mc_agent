@@ -8,6 +8,11 @@ geometry verification.
 
 import sys
 import os
+
+# Clean sys.path to only load C-extensions matching the current Python interpreter version
+curr_py = f"python3.{sys.version_info.minor}"
+sys.path = [p for p in sys.path if not any(f"python3.{m}" in p for m in range(7, 15) if m != sys.version_info.minor)]
+
 import json
 import FreeCAD
 import Part

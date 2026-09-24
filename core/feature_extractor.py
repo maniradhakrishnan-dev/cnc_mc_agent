@@ -156,7 +156,7 @@ def run_extractor(file_path, output_json, stock_z=10.0, pocket_depth=4.0):
     if ext in [".step", ".stp"]:
         env = os.environ.copy()
         env["FREECAD_MCP_TESTING"] = "1"
-        cmd = ["freecadcmd", "--disable-addon", "RobustMCPBridge", WORKER_SCRIPT, file_path, output_json]
+        cmd = ["freecadcmd", WORKER_SCRIPT, "--pass", file_path, output_json]
         res = subprocess.run(cmd, capture_output=True, text=True, env=env)
         if not os.path.exists(output_json):
             print("ERROR: FreeCAD STEP feature extraction failed.")

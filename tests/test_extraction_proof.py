@@ -31,7 +31,7 @@ class TestExtractionProofGateA(unittest.TestCase):
         self.assertEqual(res.returncode, 0, f"Extraction failed: {res.stderr}")
 
         # 2. Run Gate A
-        cmd = ["freecadcmd", "--disable-addon", "RobustMCPBridge", GATE_A_WORKER, "--", cad_file, features_json, proof_json]
+        cmd = ["freecadcmd", GATE_A_WORKER, "--pass", cad_file, features_json, proof_json]
         res = subprocess.run(cmd, capture_output=True, text=True)
         self.assertEqual(res.returncode, 0, f"Gate A failed: {res.stdout}\n{res.stderr}")
 
@@ -52,7 +52,7 @@ class TestExtractionProofGateA(unittest.TestCase):
         res = subprocess.run(cmd, capture_output=True, text=True)
         self.assertEqual(res.returncode, 0)
 
-        cmd = ["freecadcmd", "--disable-addon", "RobustMCPBridge", GATE_A_WORKER, "--", cad_file, features_json, proof_json]
+        cmd = ["freecadcmd", GATE_A_WORKER, "--pass", cad_file, features_json, proof_json]
         res = subprocess.run(cmd, capture_output=True, text=True)
         self.assertEqual(res.returncode, 0)
 
@@ -79,7 +79,7 @@ class TestExtractionProofGateA(unittest.TestCase):
             json.dump(feat_data, f, indent=2)
 
         # Run Gate A -> must fail!
-        cmd = ["freecadcmd", "--disable-addon", "RobustMCPBridge", GATE_A_WORKER, "--", cad_file, features_json, proof_json]
+        cmd = ["freecadcmd", GATE_A_WORKER, "--pass", cad_file, features_json, proof_json]
         res = subprocess.run(cmd, capture_output=True, text=True)
         self.assertNotEqual(res.returncode, 0, "Gate A should have failed on omitted pocket")
 

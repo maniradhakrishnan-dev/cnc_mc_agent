@@ -37,7 +37,7 @@ class TestGeometryProofGateB(unittest.TestCase):
         stl_dir = valid_run
         proof_json = os.path.join(self.temp_dir, "proof_b.json")
 
-        cmd = ["freecadcmd", "--disable-addon", "RobustMCPBridge", GATE_B_WORKER, "--", cad_file, stl_dir, proof_json]
+        cmd = ["freecadcmd", GATE_B_WORKER, "--pass", cad_file, stl_dir, proof_json]
         res = subprocess.run(cmd, capture_output=True, text=True)
         self.assertEqual(res.returncode, 0, f"Gate B failed: {res.stdout}\n{res.stderr}")
 
@@ -60,7 +60,7 @@ class TestGeometryProofGateB(unittest.TestCase):
         empty_dir = self.temp_dir
         proof_json = os.path.join(self.temp_dir, "proof_empty.json")
 
-        cmd = ["freecadcmd", "--disable-addon", "RobustMCPBridge", GATE_B_WORKER, "--", cad_file, empty_dir, proof_json]
+        cmd = ["freecadcmd", GATE_B_WORKER, "--pass", cad_file, empty_dir, proof_json]
         res = subprocess.run(cmd, capture_output=True, text=True)
         self.assertNotEqual(res.returncode, 0, "Gate B should fail when no strategy STLs exist")
 

@@ -231,7 +231,7 @@ try:
             script_idx = i
             break
     worker_args = sys.argv[script_idx + 1:] if script_idx >= 0 else []
-    if worker_args and worker_args[0] == "--":
+    if worker_args and worker_args[0] in ("--", "--pass"):
         worker_args = worker_args[1:]
 
     if len(worker_args) < 3:

@@ -58,7 +58,7 @@ def run_freecad_worker(step_num, step_name, script_name, args_list, fatal_on_non
         script_path = os.path.join(AGENT_DIR, script_name)
     env = os.environ.copy()
     env["FREECAD_MCP_TESTING"] = "1"
-    cmd = ["freecadcmd", "--disable-addon", "RobustMCPBridge", script_path, "--"] + args_list
+    cmd = ["freecadcmd", script_path, "--pass"] + args_list
     t0 = time.time()
     res = subprocess.run(cmd, capture_output=True, text=True, env=env)
     elapsed = time.time() - t0
