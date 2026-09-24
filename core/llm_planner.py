@@ -458,6 +458,8 @@ def call_gemini_api(api_key, features, tools, model="gemini-3.1-flash-lite", fee
     Calls Google Gemini REST API directly via urllib.
     Incorporates diagnostic feedback if available for closed-loop self-correction.
     """
+    api_key = (api_key or "").strip().strip('"').strip("'")
+    model = (model or "gemini-3.1-flash-lite").strip().strip('"').strip("'")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
     
     feedback_section = ""
@@ -550,6 +552,10 @@ def plan_strategies(features_path, tools_path, output_path, api_key=None, model=
             print(f"   ↳ {directive}")
 
     gemini_key = api_key or os.environ.get("GEMINI_API_KEY")
+    if gemini_key:
+        gemini_key = gemini_key.strip().strip('"').strip("'")
+    if model:
+        model = model.strip().strip('"').strip("'")
     strategies = None
 
     if gemini_key:
@@ -557,6 +563,15 @@ def plan_strategies(features_path, tools_path, output_path, api_key=None, model=
         try:
             strategies = call_gemini_api(gemini_key, features, tools, model=model, feedback=feedback)
             print("[✓] Successfully received revised machining strategies from Gemini!")
+        except urllib.error.HTTPError as e:
+            err_msg = ""
+            try:
+                err_body = json.loads(e.read().decode("utf-8"))
+                err_msg = err_body.get("error", {}).get("message", str(e))
+            except Exception:
+                err_msg = str(e)
+            print(f"[!] Warning: Gemini API call failed (HTTP {e.code}: {err_msg}). Falling back to deterministic planner.")
+            strategies = build_deterministic_fallback(features, tools, feedback=feedback)
         except Exception as e:
             print(f"[!] Warning: Gemini API call failed ({e}). Falling back to deterministic planner.")
             strategies = build_deterministic_fallback(features, tools, feedback=feedback)
