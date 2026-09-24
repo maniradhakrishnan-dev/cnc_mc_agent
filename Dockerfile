@@ -38,14 +38,11 @@ RUN apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # 3. Install CAMotics 1.2.0 and its native runtime dependencies (libssl1.1 & libv8)
-COPY camotics_1.2.0_amd64.deb* /tmp/
 RUN wget -q http://archive.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1f-1ubuntu2.24_amd64.deb -O /tmp/libssl1.1.deb \
     && dpkg -i /tmp/libssl1.1.deb \
     && wget -q http://archive.ubuntu.com/ubuntu/pool/universe/libv/libv8-3.14/libv8-3.14.5_3.14.5.8-5ubuntu2_amd64.deb -O /tmp/libv8.deb \
     && dpkg -i /tmp/libv8.deb \
-    && if [ ! -f /tmp/camotics_1.2.0_amd64.deb ]; then \
-        wget -q https://camotics.org/builds/release/debian-stable-64bit/camotics_1.2.0_amd64.deb -O /tmp/camotics_1.2.0_amd64.deb; \
-    fi \
+    && wget -q https://camotics.org/builds/release/debian-stable-64bit/camotics_1.2.0_amd64.deb -O /tmp/camotics_1.2.0_amd64.deb \
     && dpkg -i /tmp/camotics_1.2.0_amd64.deb \
     && rm -f /tmp/libssl1.1.deb /tmp/libv8.deb /tmp/camotics_1.2.0_amd64.deb
 
