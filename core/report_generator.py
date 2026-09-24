@@ -17,7 +17,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Autonomous CNC Agent - Pareto Frontier Verification</title>
+  <title>CNC Machine Code Agent - Pareto Frontier Verification</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Outfit:wght@300;400;600;700;800&display=swap" rel="stylesheet">
@@ -212,7 +212,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           <span class="badge badge-pass">● 100% Deterministic Verification</span>
           <span class="badge badge-info">OpenCASCADE & FreeCAD Core</span>
         </div>
-        <h1>Autonomous CNC Machining Agent</h1>
+        <h1>CNC Machine Code Agent</h1>
         <p class="subtitle">Multi-Objective Pareto Frontier: Machining Speed vs. Surface Accuracy</p>
       </div>
       <div style="text-align: right;">

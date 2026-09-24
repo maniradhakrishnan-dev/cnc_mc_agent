@@ -1,4 +1,4 @@
-"""Autonomous CNC Machining Agent - Interactive Web Application.
+"""CNC Machine Code Agent - Interactive Web Application.
 
 A production-grade web dashboard and microservice:
 - Drag-and-drop CAD file uploader (.step, .stp, .dxf)
@@ -1079,13 +1079,13 @@ def main():
     import uvicorn
     import argparse
 
-    parser = argparse.ArgumentParser(description="Autonomous CNC Machining Agent Web Server")
+    parser = argparse.ArgumentParser(description="CNC Machine Code Agent Web Server")
     parser.add_argument("--host", default="0.0.0.0", help="Host interface (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8000, help="Server port (default: 8000)")
     args = parser.parse_args()
 
     print("=" * 75)
-    print(" 🚀 AUTONOMOUS CNC MACHINING AGENT - WEB SERVICE RUNNING")
+    print(" 🚀 CNC MACHINE CODE AGENT - WEB SERVICE RUNNING")
     print("=" * 75)
     print(f" Local Web UI    : \033[1;36mhttp://localhost:{args.port}\033[0m")
     print(f" Network Web UI  : \033[1;36mhttp://{args.host}:{args.port}\033[0m")
