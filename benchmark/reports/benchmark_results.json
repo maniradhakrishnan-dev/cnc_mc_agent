@@ -1,0 +1,121 @@
+[
+  {
+    "part_key": "02",
+    "part_name": "PART_02_single_pocket.step",
+    "is_refusal_case": false,
+    "metrics": {
+      "agent_gcode_lines": 182,
+      "freecad_gcode_lines": 52,
+      "agent_cycle_time_sec": 119.07,
+      "freecad_cycle_time_sec": 35.39,
+      "agent_cycle_formatted": "1m 59s",
+      "freecad_cycle_formatted": "0m 35s",
+      "cycle_delta_sec": 83.7,
+      "cycle_delta_pct": 236.5,
+      "agent_cutting_dist_mm": 1532.5,
+      "freecad_cutting_dist_mm": 456.0,
+      "agent_air_dist_mm": 473.45,
+      "freecad_air_dist_mm": 127.43,
+      "agent_air_ratio_pct": 23.6,
+      "freecad_air_ratio_pct": 21.84,
+      "air_delta_pct": 1.8,
+      "agent_retract_count": 18,
+      "freecad_retract_count": 4,
+      "retract_delta": 14,
+      "agent_tools_used": [
+        1,
+        2
+      ],
+      "freecad_tools_used": [
+        1
+      ]
+    },
+    "programming_economics": {
+      "agent_autonomy": "100% Autonomous (0 clicks)",
+      "freecad_programming": "Manual face selection (15-20 min)"
+    }
+  },
+  {
+    "part_key": "06",
+    "part_name": "PART_06_refusal_tight_radius.step",
+    "is_refusal_case": true,
+    "agent_status": "REFUSED_SAFELY",
+    "freecad_status": "BLIND_OVERCUT",
+    "winner": "AGENT (Zero Tool Breakage)"
+  },
+  {
+    "part_key": "10",
+    "part_name": "PART_10_benchmark_flange_housing.step",
+    "is_refusal_case": false,
+    "metrics": {
+      "agent_gcode_lines": 5404,
+      "freecad_gcode_lines": 818,
+      "agent_cycle_time_sec": 1926.7,
+      "freecad_cycle_time_sec": 244.25,
+      "agent_cycle_formatted": "32m 06s",
+      "freecad_cycle_formatted": "4m 04s",
+      "cycle_delta_sec": 1682.5,
+      "cycle_delta_pct": 688.8,
+      "agent_cutting_dist_mm": 13712.91,
+      "freecad_cutting_dist_mm": 1935.84,
+      "agent_air_dist_mm": 28891.36,
+      "freecad_air_dist_mm": 4929.41,
+      "agent_air_ratio_pct": 67.81,
+      "freecad_air_ratio_pct": 71.8,
+      "air_delta_pct": -4.0,
+      "agent_retract_count": 516,
+      "freecad_retract_count": 124,
+      "retract_delta": 392,
+      "agent_tools_used": [
+        1,
+        3,
+        4
+      ],
+      "freecad_tools_used": [
+        1
+      ]
+    },
+    "programming_economics": {
+      "agent_autonomy": "100% Autonomous (0 clicks)",
+      "freecad_programming": "Manual face selection (15-20 min)"
+    }
+  },
+  {
+    "part_key": "PART_03_pocket_with_holes",
+    "part_name": "PART_03_pocket_with_holes.step",
+    "is_refusal_case": false,
+    "metrics": {
+      "agent_gcode_lines": 489,
+      "freecad_gcode_lines": 58,
+      "agent_cycle_time_sec": 306.45,
+      "freecad_cycle_time_sec": 33.95,
+      "agent_cycle_formatted": "5m 06s",
+      "freecad_cycle_formatted": "0m 33s",
+      "cycle_delta_sec": 272.5,
+      "cycle_delta_pct": 802.7,
+      "agent_cutting_dist_mm": 1827.54,
+      "freecad_cutting_dist_mm": 385.5,
+      "agent_air_dist_mm": 3966.19,
+      "freecad_air_dist_mm": 210.94,
+      "agent_air_ratio_pct": 68.46,
+      "freecad_air_ratio_pct": 35.37,
+      "air_delta_pct": 33.1,
+      "agent_retract_count": 76,
+      "freecad_retract_count": 5,
+      "retract_delta": 71,
+      "agent_tools_used": [
+        1,
+        2,
+        4,
+        8
+      ],
+      "freecad_tools_used": [
+        1
+      ]
+    },
+    "programming_economics": {
+      "agent_autonomy": "100% Autonomous (0 clicks)",
+      "freecad_programming": "Manual face selection (15-20 min)"
+    }
+  }
+]
