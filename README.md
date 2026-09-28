@@ -269,3 +269,7 @@ All run artifacts are saved under `runs/<run_id>/`:
   - `runs/<run_id>/3_balanced.ngc` (Industrial balanced trade-off)
 - **Convergence History & Critique**:
   `runs/<run_id>/iteration_history.json`, `runs/<run_id>/critique.json`
+
+
+## Web Portal
+![web_portal](images/web_portal.png)
